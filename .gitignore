@@ -3,9 +3,6 @@ __pycache__/
 *.py[codz]
 *$py.class
 
-#firebase service account json
-utils/service_account.json
-
 API_FLOW_DOCUMENTATION.md 
 SETUP_GUIDE.md
 # C extensions
