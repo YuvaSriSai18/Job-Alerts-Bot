@@ -2,12 +2,26 @@ import firebase_admin
 from firebase_admin import firestore, credentials
 from dotenv import load_dotenv
 import os
+import json
+from pathlib import Path
 
 load_dotenv()
 
 class Firebase:
     def __init__(self):
-        cred = credentials.Certificate(r"utils\service_account.json")
+        firebase_creds = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON")
+        
+        if firebase_creds:
+            cred_dict = json.loads(firebase_creds)
+            cred = credentials.Certificate(cred_dict)
+        else:
+            cred_path = Path(__file__).parent.parent / "utils" / "service_account.json"
+            if not cred_path.exists():
+                raise FileNotFoundError(
+                    f"Firebase credentials not found at {cred_path}\n"
+                    "Set FIREBASE_SERVICE_ACCOUNT_JSON environment variable or create service_account.json"
+                )
+            cred = credentials.Certificate(str(cred_path))
         if not firebase_admin._apps:
             firebase_admin.initialize_app(cred)
         self.db = firestore.client()
