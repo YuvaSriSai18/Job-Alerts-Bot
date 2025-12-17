@@ -3,3 +3,4 @@ sendgrid
 google-api-python-client
 google-generativeai
 pyjwt
+uvicorn
