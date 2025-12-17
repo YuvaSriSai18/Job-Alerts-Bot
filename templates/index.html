@@ -103,9 +103,10 @@
       Get verified job & internship alerts from trusted YouTube channels.
     </div>
 
-    <form method="POST" action="/api/subscribe">
+    <form id="subscribeForm">
       <input
         type="email"
+        id="emailInput"
         name="email"
         placeholder="Enter E-Mail address"
         required
@@ -120,8 +121,8 @@
   </div>
 
 <script>
-  const form = document.querySelector("form");
-  const emailInput = document.querySelector("input[type='email']");
+  const form = document.getElementById("subscribeForm");
+  const emailInput = document.getElementById("emailInput");
   const errorBox = document.getElementById("error");
 
   const allowedExactDomains = ["gmail.com"];
@@ -146,22 +147,49 @@
     );
   }
 
-  form.addEventListener("submit", function (e) {
+  form.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    
     const email = emailInput.value.trim().toLowerCase();
     errorBox.style.display = "none";
+    errorBox.textContent = "";
 
     if (!isValidEmail(email)) {
-      e.preventDefault();
       errorBox.textContent = "Invalid email format.";
       errorBox.style.display = "block";
       return;
     }
 
     if (!isAllowedDomain(email)) {
-      e.preventDefault();
-      errorBox.textContent =
-        "Only Gmail or official university/college email addresses are allowed.";
+      errorBox.textContent = "Only Gmail or official university/college email addresses are allowed.";
       errorBox.style.display = "block";
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append("email", email);
+
+      const response = await fetch("/register", {
+        method: "POST",
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Registration failed");
+      }
+
+      const data = await response.json();
+      errorBox.style.color = "#22c55e";
+      errorBox.textContent = "✅ Check your email to verify your subscription!";
+      errorBox.style.display = "block";
+      emailInput.value = "";
+
+    } catch (error) {
+      errorBox.style.color = "#dc2626";
+      errorBox.textContent = `Error: ${error.message}`;
+      // errorBox.style.display = "block";
     }
   });
 </script>

@@ -145,42 +145,7 @@
 
     <!-- Content -->
     <div class="content">
-
-      <!-- 🔁 LOOP START: openings[] -->
-      {{#each openings}}
-      <div class="job-card">
-
-        <div class="job-title">{{role}}</div>
-        <div class="company">{{company}}</div>
-
-        <div class="meta">
-          <span>📌 {{employmentType}}</span>
-          <span>🏠 {{workMode}}</span>
-          <span>📍 {{location}}</span>
-          {{#if duration}}
-          <span>⏳ {{duration}}</span>
-          {{/if}}
-        </div>
-
-        {{#if requiredSkills.length}}
-        <div class="skills">
-          <strong>Skills:</strong>
-          {{requiredSkills}}
-        </div>
-        {{/if}}
-
-        <div class="summary">
-          {{summary}}
-        </div>
-
-        <a class="apply-btn" href="{{applyLink}}" target="_blank">
-          Apply Now →
-        </a>
-
-      </div>
-      {{/each}}
-      <!-- 🔁 LOOP END -->
-
+      {{ JOB_CARDS }}
     </div>
 
     <!-- Footer -->
@@ -189,7 +154,7 @@
         This is an automated email. Please do not reply.
       </p>
       <p>
-        <a href="{{unsubscribeLink}}">Unsubscribe</a> • © {{year}} Job Alerts
+        <a href="{{ unsubscribeLink }}">Unsubscribe</a> • © {{ year }} Job Alerts
       </p>
     </div>
 

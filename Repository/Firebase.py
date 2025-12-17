@@ -1,10 +1,15 @@
 import firebase_admin
 from firebase_admin import firestore, credentials
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 class Firebase:
     def __init__(self):
         cred = credentials.Certificate(r"utils\service_account.json")
-        firebase_admin.initialize_app(cred)
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred)
         self.db = firestore.client()
     
     def add_document(self, folder_name, data):
@@ -43,6 +48,13 @@ class Firebase:
         for doc in docs:
             result.append({"id": doc.id, **doc.to_dict()})
         return result
+    
+    def exists(self, folder_name, field_name, value):
+        docs = self.db.collection(folder_name).where(field_name, "==", value).stream()
+        for doc in docs:
+            if doc.exists:
+                return True
+        return False
     
 """
 Docstring for Repository.Firebase
