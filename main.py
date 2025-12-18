@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 import os
+import json
 
 load_dotenv()
 
@@ -134,7 +135,7 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
             {"error": "CRON_SECRET not configured"},
             status_code=500
         )
-    
+    # print(CRON_SECRET)
     if not x_cron_secret or x_cron_secret != CRON_SECRET:
         return JSONResponse(
             {"error": "Unauthorized"},
@@ -191,16 +192,33 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
                 
                 result = YoutubeObj.process_video_for_jobs(video["videoId"])
                 
-                if result.get("isJobVideo") and result.get("openings"):
-                    job_count = len(result["openings"])
-                    print(f"      ✅ Found {job_count} job opening(s)")
-                    all_openings.extend(result["openings"])
-                    videos_with_jobs += 1
-                else:
-                    print(f"      ℹ️  No jobs in this video")
+                # DEBUG: Print result structure
+                print(f"      Result type: {type(result)}, Result: {result}")
+                
+                if result and isinstance(result, dict):
+                    is_job_video = result.get("isJobVideo", False)
+                    openings = result.get("openings", [])
                     
+                    print(f"      isJobVideo: {is_job_video}, Openings count: {len(openings) if openings else 0}")
+                    
+                    if is_job_video and openings and len(openings) > 0:
+                        job_count = len(openings)
+                        print(f"      ✅ Found {job_count} job opening(s)")
+                        all_openings.extend(openings)
+                        videos_with_jobs += 1
+                    else:
+                        print(f"      ℹ️  No jobs in this video (isJobVideo={is_job_video}, openings={len(openings) if openings else 0})")
+                else:
+                    print(f"      ⚠️  Invalid result format: {result}")
+                    
+            except json.JSONDecodeError as e:
+                print(f"      ❌ JSON Parse Error: {str(e)}")
+                print(f"         This usually means Gemini returned invalid JSON")
+                continue
             except Exception as e:
-                print(f"      ❌ Error processing video: {str(e)}")
+                print(f"      ❌ Error processing video: {type(e).__name__}: {str(e)}")
+                import traceback
+                traceback.print_exc()
                 continue
         
         if not all_openings:

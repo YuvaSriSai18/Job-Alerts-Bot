@@ -84,6 +84,7 @@ class Youtube:
         }
 
     def extract_jobs_with_gemini(self, title: str, description: str, transcript: str) -> dict:
+        print(f"Extracting video {title}")
         prompt = f"""
 IMPORTANT:
 - Respond with STRICT VALID JSON only.
@@ -129,13 +130,32 @@ Return STRICT JSON ONLY:
   ]
 }}
 """
-        response = self.gemini.generate_content(prompt)
-        return json.loads(response.text)
+        try:
+            response = self.gemini.generate_content(prompt)
+            result = json.loads(response.text)
+            print(f"✅ Successfully extracted: isJobVideo={result.get('isJobVideo')}, openings={len(result.get('openings', []))}")
+            return result
+        except json.JSONDecodeError as e:
+            print(f"❌ JSON Parse Error from Gemini: {str(e)}")
+            print(f"   Gemini response was: {response.text[:200]}")
+            return {"isJobVideo": False, "openings": []}
+        except Exception as e:
+            print(f"❌ Gemini Error: {type(e).__name__}: {str(e)}")
+            return {"isJobVideo": False, "openings": []}
 
     def process_video_for_jobs(self, video_id: str) -> dict:
+        """
+        Process a video and extract job openings.
+        
+        Note: If transcript is not available (disabled captions, age-restricted, etc),
+        we still try to extract jobs from title and description using Gemini.
+        """
         transcript = self.get_transcript(video_id)
+        
+        # Don't return early - transcript might be unavailable but title/description might have job info
         if not transcript:
-            return {"isJobVideo": False, "openings": []}
+            print(f"   ⚠️  Transcript not available for {video_id}, trying with title/description only")
+            transcript = ""
 
         meta = self.get_title_description(video_id)
         return self.extract_jobs_with_gemini(
