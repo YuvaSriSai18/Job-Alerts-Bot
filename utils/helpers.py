@@ -87,6 +87,15 @@ def verify_unsubscribe_token(token: str) -> str | None:
     except InvalidTokenError:
         return None
 
+def format_date(date_str):
+  from datetime import datetime
+  dt_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00')) 
+
+  # Format as desired (e.g., "Dec 18, 2025 - 07:42 AM")
+  formatted_date = dt_obj.strftime("%b %d, %Y - %I:%M %p")
+  # print(formatted_date)
+  return formatted_date
+
 # ================== TEST ==================
 
 if __name__ == "__main__":
