@@ -1,13 +1,10 @@
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, Form, HTTPException, Header
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from contextlib import asynccontextmanager
-import asyncio
 import os
-from fastapi_utilities import repeat_every
 
 load_dotenv()
 
@@ -113,60 +110,236 @@ async def unsubscribe_user(token: str, request: Request):
         {"request": request, "email": email}
     )
 
-@repeat_every(seconds=60 * 2)
-async def job_alert_scheduler():
-    CHANNEL_ID = "UCbEd9lNwkBGLFGz8ZxsZdVA"
-    MAX_VIDEOS = 3
 
-    state = FirebaseObj.get_document("system_state", "youtube")
-    last_processed_at = state.get("lastProcessedAt") if state else None
-
-    videos = YoutubeObj.get_recent_videos(
-        CHANNEL_ID,
-        MAX_VIDEOS,
-        published_after=last_processed_at
-    )
-
-    if not videos:
-        return
-
-    all_openings = []
-
-    for video in videos:
-        result = YoutubeObj.process_video_for_jobs(video["videoId"])
-        if result.get("isJobVideo"):
-            all_openings.extend(result.get("openings", []))
-
-    if not all_openings:
-        return
-
-    subscribers = FirebaseObj.get_all_documents("subscribers")
-    active = [
-        s for s in subscribers
-        if s.get("subscribed") and s.get("isVerified")
-    ]
-
-    for sub in active:
-        email = sub.get("email")
-        token = sub.get("unsubscribeToken")
-        if not email or not token:
-            continue
-
-        unsubscribe_link = f"{BASE_URL}/unsubscribe/{token}"
-
-        SendGridObj.send_job_alert_email(
-            email=email,
-            openings=all_openings,
-            unsubscribe_link=unsubscribe_link
+@app.get("/api/cron/job-alert")
+async def cron_job_alert(x_cron_secret: str = Header(None)):
+    """
+    Serverless cron endpoint for Vercel deployment.
+    Runs the job alert logic exactly once per request.
+    Protected with header-based secret validation.
+    
+    Vercel calls this endpoint every 6 hours using vercel.json configuration.
+    
+    Requirements:
+    - Header: x-cron-secret
+    - Compare against environment variable: CRON_SECRET
+    - Returns JSON with execution details
+    """
+    
+    # ===== SECURITY: Validate cron secret =====
+    CRON_SECRET = os.getenv("CRON_SECRET")
+    
+    if not CRON_SECRET:
+        return JSONResponse(
+            {"error": "CRON_SECRET not configured"},
+            status_code=500
         )
-
-    latest_published_at = max(v["publishedAt"] for v in videos)
-
-    FirebaseObj.set_document(
-        "system_state",
-        "youtube",
-        {"lastProcessedAt": latest_published_at}
-    )
+    
+    if not x_cron_secret or x_cron_secret != CRON_SECRET:
+        return JSONResponse(
+            {"error": "Unauthorized"},
+            status_code=403
+        )
+    
+    try:
+        print("\n" + "="*60)
+        print(f"🔔 [CRON] Starting job alert at {datetime.now(timezone.utc)}")
+        print("="*60)
+        
+        # ===== STEP 1: Configuration =====
+        CHANNEL_ID = "UCbEd9lNwkBGLFGz8ZxsZdVA"
+        MAX_VIDEOS = 3
+        
+        print(f"\n📋 [CRON] Configuration:")
+        print(f"   - Channel ID: {CHANNEL_ID}")
+        print(f"   - Max Videos: {MAX_VIDEOS}")
+        
+        # ===== STEP 2: Fetch state and get videos =====
+        print(f"\n📺 [CRON] Fetching videos...")
+        
+        state = FirebaseObj.get_document("system_state", "youtube")
+        last_processed_at = state.get("lastProcessedAt") if state else None
+        
+        print(f"   - Last processed: {last_processed_at or 'Never'}")
+        
+        videos = YoutubeObj.get_recent_videos(
+            CHANNEL_ID,
+            MAX_VIDEOS,
+            published_after=last_processed_at
+        )
+        
+        if not videos:
+            print("   ⚠️  No new videos found")
+            return JSONResponse(
+                {"status": "success", "message": "No new videos", "videos_processed": 0},
+                status_code=200
+            )
+        
+        print(f"   ✅ Found {len(videos)} video(s)")
+        for v in videos:
+            print(f"      📹 {v['title'][:50]}...")
+        
+        # ===== STEP 3: Extract jobs from videos =====
+        print(f"\n🔍 [CRON] Extracting jobs from videos...")
+        
+        all_openings = []
+        videos_with_jobs = 0
+        
+        for i, video in enumerate(videos, 1):
+            try:
+                print(f"\n   [{i}/{len(videos)}] Processing: {video['videoId']}")
+                
+                result = YoutubeObj.process_video_for_jobs(video["videoId"])
+                
+                if result.get("isJobVideo") and result.get("openings"):
+                    job_count = len(result["openings"])
+                    print(f"      ✅ Found {job_count} job opening(s)")
+                    all_openings.extend(result["openings"])
+                    videos_with_jobs += 1
+                else:
+                    print(f"      ℹ️  No jobs in this video")
+                    
+            except Exception as e:
+                print(f"      ❌ Error processing video: {str(e)}")
+                continue
+        
+        if not all_openings:
+            print(f"\n📭 [CRON] No job openings found in any video")
+            
+            # Update state anyway
+            if videos:
+                latest_published_at = max(v["publishedAt"] for v in videos)
+                FirebaseObj.set_document(
+                    "system_state",
+                    "youtube",
+                    {"lastProcessedAt": latest_published_at}
+                )
+            
+            return JSONResponse(
+                {
+                    "status": "success",
+                    "message": "No jobs found",
+                    "videos_processed": len(videos),
+                    "videos_with_jobs": videos_with_jobs,
+                    "jobs_extracted": 0
+                },
+                status_code=200
+            )
+        
+        print(f"\n🎯 [CRON] Total jobs extracted: {len(all_openings)}")
+        
+        # ===== STEP 4: Get active subscribers =====
+        print(f"\n👥 [CRON] Fetching subscribers...")
+        
+        subscribers = FirebaseObj.get_all_documents("subscribers")
+        active = [
+            s for s in subscribers
+            if s.get("subscribed") and s.get("isVerified")
+        ]
+        
+        if not active:
+            print("   📭 No active subscribers")
+            
+            # Update state
+            if videos:
+                latest_published_at = max(v["publishedAt"] for v in videos)
+                FirebaseObj.set_document(
+                    "system_state",
+                    "youtube",
+                    {"lastProcessedAt": latest_published_at}
+                )
+            
+            return JSONResponse(
+                {
+                    "status": "success",
+                    "message": "No active subscribers",
+                    "videos_processed": len(videos),
+                    "videos_with_jobs": videos_with_jobs,
+                    "jobs_extracted": len(all_openings),
+                    "emails_sent": 0
+                },
+                status_code=200
+            )
+        
+        print(f"   Total subscribers: {len(subscribers)}")
+        print(f"   Active subscribers: {len(active)}")
+        print(f"   Emails to send: {[s.get('email') for s in active]}")
+        
+        # ===== STEP 5: Send job alerts =====
+        print(f"\n📧 [CRON] Sending job alerts...")
+        
+        emails_sent = 0
+        emails_failed = 0
+        
+        for i, sub in enumerate(active, 1):
+            try:
+                email = sub.get("email")
+                token = sub.get("unsubscribeToken")
+                
+                if not email or not token:
+                    print(f"   [{i}/{len(active)}] ⚠️  Skipping - missing data")
+                    emails_failed += 1
+                    continue
+                
+                unsubscribe_link = f"{BASE_URL}/unsubscribe/{token}"
+                
+                SendGridObj.send_job_alert_email(
+                    email=email,
+                    openings=all_openings,
+                    unsubscribe_link=unsubscribe_link
+                )
+                
+                print(f"   [{i}/{len(active)}] ✅ Sent to {email}")
+                emails_sent += 1
+                
+            except Exception as e:
+                print(f"   [{i}/{len(active)}] ❌ Failed: {str(e)}")
+                emails_failed += 1
+        
+        # ===== STEP 6: Update state =====
+        print(f"\n💾 [CRON] Updating state...")
+        
+        if videos:
+            latest_published_at = max(v["publishedAt"] for v in videos)
+            FirebaseObj.set_document(
+                "system_state",
+                "youtube",
+                {"lastProcessedAt": latest_published_at}
+            )
+            print(f"   ✅ State updated: {latest_published_at}")
+        
+        # ===== COMPLETION =====
+        print(f"\n🎉 [CRON] Job completed successfully!")
+        print(f"   - Videos processed: {len(videos)}")
+        print(f"   - Videos with jobs: {videos_with_jobs}")
+        print(f"   - Total jobs: {len(all_openings)}")
+        print(f"   - Emails sent: {emails_sent}")
+        print(f"   - Emails failed: {emails_failed}")
+        print("="*60 + "\n")
+        
+        return JSONResponse(
+            {
+                "status": "success",
+                "message": "Job alert completed",
+                "videos_processed": len(videos),
+                "videos_with_jobs": videos_with_jobs,
+                "jobs_extracted": len(all_openings),
+                "emails_sent": emails_sent,
+                "emails_failed": emails_failed
+            },
+            status_code=200
+        )
+        
+    except Exception as e:
+        print(f"\n❌ [CRON] FATAL ERROR: {str(e)}")
+        print("="*60 + "\n")
+        import traceback
+        traceback.print_exc()
+        
+        return JSONResponse(
+            {"error": str(e)},
+            status_code=500
+        )
 
 
 if __name__ == "__main__":
@@ -174,7 +347,18 @@ if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8001, reload=True)
 
 """
-1. Subscribe to events -> User enters mail address, posted to /submit, user details will be stored in firestore in subscribers collection with { email, isVerified , subscribed (this subscribed will be added upon completion of verification) }
-2. Email verification -> after entering email a verification mail has be sent along with the jwt token, then the server endpoint /verify-email will be validating the token and marking that mail as verified in the db
-3. Unsubscribe to events -> an link with endpoint /unsubscribe will be sent via email in every mail with attached jwt token for reference
+APPLICATION FLOW:
+1. Subscribe -> User enters email, stored in Firestore with isVerified=False
+2. Verification -> User receives verification email with JWT token
+3. Verify endpoint -> Validates token, sets isVerified=True and subscribed=True
+4. Cron job -> /api/cron/job-alert endpoint processes YouTube videos and sends job alerts
+5. Unsubscribe -> User clicks unsubscribe link with JWT token to stop receiving emails
+
+VERCEL DEPLOYMENT:
+- No background schedulers or startup events (removed @repeat_every, @app.on_event)
+- Cron logic runs via HTTP GET endpoint: /api/cron/job-alert
+- Vercel triggers the endpoint every 6 hours using vercel.json configuration
+- Security: Header-based secret authentication (x-cron-secret)
+- All logic is stateless and serverless-safe
+- No persistent processes, threads, or background tasks
 """
