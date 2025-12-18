@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-
+from fastapi_utilities import repeat_every
 load_dotenv()
 
 from Repository.Youtube import Youtube
@@ -77,6 +77,8 @@ async def verify_email(token: str, request: Request):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+
 @app.get("/unsubscribe/{token}", response_class=HTMLResponse)
 async def unsubscribe_user(token: str, request: Request):
     try:
@@ -92,6 +94,73 @@ async def unsubscribe_user(token: str, request: Request):
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# =============== CRON JOB - RUNS EVERY 6 HOURS ===============
+
+@app.on_event("startup")
+@repeat_every(seconds=6 * 60 * 60)  # 6 hours = 21600 seconds
+async def job_alert_scheduler():
+    """
+    Scheduled task that runs every 6 hours to:
+    1. Fetch YouTube videos
+    2. Extract job openings using AI
+    3. Send job alerts to all subscribed users
+    """
+    try:
+        print("🔔 [CRON JOB] Starting job alert scheduler...")
+        
+        # Get all subscribed users
+        subscribers = FirebaseObj.get_all_documents("subscribers")
+        active_subscribers = [sub for sub in subscribers if sub.get("subscribed") and sub.get("isVerified")]
+        
+        if not active_subscribers:
+            print("📭 [CRON JOB] No active subscribers found")
+            return
+        
+        print(f"📬 [CRON JOB] Found {len(active_subscribers)} active subscriber(s)")
+        
+        # TODO: Fetch YouTube videos (implement with your YouTube channel/playlist logic)
+        # For now, this is a placeholder for your job extraction logic
+        
+        # Example job openings (replace with actual YouTube video processing)
+        job_openings = [
+            {
+                "company": "TechCorp",
+                "role": "Backend Engineer",
+                "employmentType": "Full-time",
+                "workMode": "Remote",
+                "duration": None,
+                "location": "WFH",
+                "requiredSkills": ["Python", "FastAPI", "PostgreSQL"],
+                "applyLink": "https://techcorp.com/careers/backend-engineer",
+                "summary": "Join our backend team to build scalable APIs using Python and FastAPI. Experience with databases required."
+            }
+        ]
+        
+        # Send job alerts to each subscriber
+        for subscriber in active_subscribers:
+            try:
+                email = subscriber.get("email")
+                unsubscribe_token = subscriber.get("unsubscribeToken")
+                
+                if not email or not unsubscribe_token:
+                    print(f"⚠️  [CRON JOB] Skipping subscriber with missing email or token")
+                    continue
+                
+                SendGridObj.send_job_alert_email(
+                    email=email,
+                    openings=job_openings,
+                    unsubscribe_token=unsubscribe_token
+                )
+                print(f"✅ [CRON JOB] Job alert sent to {email}")
+                
+            except Exception as e:
+                print(f"❌ [CRON JOB] Failed to send alert to {subscriber.get('email')}: {str(e)}")
+        
+        print(f"🎉 [CRON JOB] Job alert scheduler completed successfully")
+        
+    except Exception as e:
+        print(f"❌ [CRON JOB] Scheduler error: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

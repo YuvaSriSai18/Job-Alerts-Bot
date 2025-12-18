@@ -2,6 +2,8 @@
 fastapi
 uvicorn
 python-multipart
+fastapi-utilities
+Jinja2
 
 # Environment & Configuration
 python-dotenv
