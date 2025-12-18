@@ -22,7 +22,7 @@ google-api-python-client
 google-generativeai
 
 # Authentication & Tokens
-PyJWT=
+PyJWT
 
 # YouTube
 youtube-transcript-api
