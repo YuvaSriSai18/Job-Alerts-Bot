@@ -1,0 +1,92 @@
+name: Job Alert Cron
+
+# Schedule: Every 6 hours (0:00, 6:00, 12:00, 18:00 UTC)
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  job-alert:
+    runs-on: ubuntu-latest
+    name: Process Job Alerts
+
+    steps:
+      - name: Log Cron Start
+        run: |
+          echo "🔔 [GitHub Actions Cron] Starting job alert at $(date -u)"
+
+      - name: Call Job Alert Endpoint
+        id: cron-call
+        run: |
+          BACKEND_URL="${{ secrets.BACKEND_URL }}"
+          CRON_SECRET="${{ secrets.CRON_SECRET }}"
+          
+          if [ -z "$BACKEND_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "❌ Missing required secrets: BACKEND_URL or CRON_SECRET"
+            exit 1
+          fi
+          
+          echo "📋 Configuration:"
+          echo "   Backend URL: $BACKEND_URL"
+          echo "   Endpoint: /api/cron/job-alert"
+          echo ""
+          echo "🔐 Calling endpoint with authentication..."
+          
+          # Call the cron endpoint with x-cron-secret header
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            "$BACKEND_URL/api/cron/job-alert")
+          
+          # Split response and HTTP code
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "📊 Response Status: $HTTP_CODE"
+          echo ""
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Endpoint returned 200 OK"
+            echo "📝 Response body:"
+            echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+            
+            # Extract metrics from JSON response
+            STATUS=$(echo "$BODY" | jq -r '.status' 2>/dev/null || echo "unknown")
+            VIDEOS=$(echo "$BODY" | jq -r '.videos_processed' 2>/dev/null || echo "0")
+            JOBS=$(echo "$BODY" | jq -r '.jobs_extracted' 2>/dev/null || echo "0")
+            EMAILS=$(echo "$BODY" | jq -r '.emails_sent' 2>/dev/null || echo "0")
+            
+            echo ""
+            echo "📈 Metrics:"
+            echo "   Status: $STATUS"
+            echo "   Videos processed: $VIDEOS"
+            echo "   Jobs extracted: $JOBS"
+            echo "   Emails sent: $EMAILS"
+            
+            exit 0
+          elif [ "$HTTP_CODE" = "403" ]; then
+            echo "❌ Endpoint returned 403 Unauthorized"
+            echo "   Check CRON_SECRET in GitHub Secrets"
+            echo "   Response: $BODY"
+            exit 1
+          elif [ "$HTTP_CODE" = "500" ]; then
+            echo "❌ Endpoint returned 500 Internal Server Error"
+            echo "   Response: $BODY"
+            exit 1
+          else
+            echo "❌ Unexpected HTTP status: $HTTP_CODE"
+            echo "   Response: $BODY"
+            exit 1
+          fi
+
+      - name: Cron Success
+        if: success()
+        run: |
+          echo "🎉 [GitHub Actions Cron] Job alert completed successfully"
+
+      - name: Cron Failure
+        if: failure()
+        run: |
+          echo "❌ [GitHub Actions Cron] Job alert failed"
+          exit 1

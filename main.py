@@ -114,15 +114,15 @@ async def unsubscribe_user(token: str, request: Request):
 @app.get("/api/cron/job-alert")
 async def cron_job_alert(x_cron_secret: str = Header(None)):
     """
-    Serverless cron endpoint for Vercel deployment.
+    Protected cron endpoint for job alert scheduler.
     Runs the job alert logic exactly once per request.
-    Protected with header-based secret validation.
     
-    Vercel calls this endpoint every 6 hours using vercel.json configuration.
+    Called by GitHub Actions every 6 hours.
     
-    Requirements:
+    Security:
     - Header: x-cron-secret
     - Compare against environment variable: CRON_SECRET
+    - Returns HTTP 403 if invalid
     - Returns JSON with execution details
     """
     
@@ -351,14 +351,13 @@ APPLICATION FLOW:
 1. Subscribe -> User enters email, stored in Firestore with isVerified=False
 2. Verification -> User receives verification email with JWT token
 3. Verify endpoint -> Validates token, sets isVerified=True and subscribed=True
-4. Cron job -> /api/cron/job-alert endpoint processes YouTube videos and sends job alerts
+4. Cron job -> /api/cron/job-alert endpoint (called by GitHub Actions every 6 hours)
 5. Unsubscribe -> User clicks unsubscribe link with JWT token to stop receiving emails
 
-VERCEL DEPLOYMENT:
-- No background schedulers or startup events (removed @repeat_every, @app.on_event)
-- Cron logic runs via HTTP GET endpoint: /api/cron/job-alert
-- Vercel triggers the endpoint every 6 hours using vercel.json configuration
-- Security: Header-based secret authentication (x-cron-secret)
-- All logic is stateless and serverless-safe
-- No persistent processes, threads, or background tasks
+CRON EXECUTION (GitHub Actions):
+- GitHub Actions calls GET /api/cron/job-alert with x-cron-secret header every 6 hours
+- Endpoint authenticates using CRON_SECRET environment variable
+- Processes YouTube videos, extracts jobs, and sends emails to subscribers
+- Stateless HTTP endpoint: safe to call multiple times
+- State tracked in Firestore (lastProcessedAt prevents duplicate processing)
 """
