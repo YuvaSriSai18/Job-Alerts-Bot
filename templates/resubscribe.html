@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Job Alerts – Subscribe</title>
-    <link rel="web icon" href="https://img.freepik.com/free-vector/job-alert-abstract-concept-illustration-job-notification-career-alert-work-opportunity-information-online-application-status-digital-hr-human-resources-service_335657-3353.jpg">
+    <title>Job Alerts – Re-subscribe</title>
+    <link rel="web icon" href="https://static.vecteezy.com/system/resources/previews/008/982/525/non_2x/job-notification-circle-background-icon-vector.jpg">
     <style>
       * {
         box-sizing: border-box;
@@ -113,43 +113,52 @@
       a:hover {
         text-decoration: underline;
       }
+
+      .success-message {
+        color: #22c55e;
+        font-size: 13px;
+        display: none;
+        margin-bottom: 10px;
+      }
     </style>
   </head>
   <body>
     <div class="card">
       <div class="logo">🚀 Job Alerts</div>
-      <div class="subtitle">AI-Powered Job & Internship Notifications</div>
+      <div class="subtitle">Welcome Back!</div>
 
       <div class="info">
-        Get verified job & internship alerts from trusted YouTube channels.
+        Miss our job alerts? Re-activate your subscription and get back on track with the latest opportunities.
       </div>
 
-      <form id="subscribeForm">
+      <form id="resubscribeForm">
         <input
           type="email"
           id="emailInput"
           name="email"
-          placeholder="Enter E-Mail address"
+          placeholder="Enter your email address"
           required
         />
         <div id="error"></div>
-        <button type="submit">Resgister for Subscribing</button>
+        <div class="success-message" id="success"></div>
+        <button type="submit">Re-Subscribe to Job Alerts</button>
       </form>
 
-      <div class="footer">
-        <span>No spam. Unsubscribe anytime.</span>
+      <div class="link-section">
+        <div class="link-text">Not re-subscribing?</div>
+        <a href="/">← Back to Subscribe</a>
       </div>
 
-      <div class="link-section">
-        <div class="link-text">Already unsubscribed?</div>
-        <a href="/resubscribe">Re-Subscribe Here →</a>
+      <div class="footer">
+        <span>We'll send you a confirmation email.</span>
       </div>
     </div>
 
     <script>
-      const form = document.getElementById("subscribeForm");
+      const form = document.getElementById("resubscribeForm");
       const emailInput = document.getElementById("emailInput");
       const errorBox = document.getElementById("error");
+      const successBox = document.getElementById("success");
 
       const allowedExactDomains = ["gmail.com"];
       const allowedAcademicSuffixes = [
@@ -179,16 +188,18 @@
         const email = emailInput.value.trim().toLowerCase();
         errorBox.style.display = "none";
         errorBox.textContent = "";
+        successBox.style.display = "none";
+        successBox.textContent = "";
 
         if (!isValidEmail(email)) {
-          errorBox.textContent = "Invalid email format.";
+          errorBox.textContent = "❌ Invalid email format.";
           errorBox.style.display = "block";
           return;
         }
 
         if (!isAllowedDomain(email)) {
           errorBox.textContent =
-            "Only Gmail or official university/college email addresses are allowed.";
+            "❌ Only Gmail or official university/college email addresses are allowed.";
           errorBox.style.display = "block";
           return;
         }
@@ -197,7 +208,7 @@
           const formData = new FormData();
           formData.append("email", email);
 
-          const response = await fetch("/register", {
+          const response = await fetch("/resubscribe", {
             method: "POST",
             body: formData,
           });
@@ -205,21 +216,22 @@
           if (!response.ok) {
             const errorData = await response.json();
             errorBox.style.color = "#dc2626";
-            errorBox.textContent = `Error: ${error.detail}`;
+            errorBox.textContent = `❌ Error: ${errorData.detail || "Re-subscription failed"}`;
             errorBox.style.display = "block";
-            throw new Error(errorData.detail || "Registration failed");
+            throw new Error(errorData.detail || "Re-subscription failed");
           }
 
-          const data = await response.json();
-          errorBox.style.color = "#22c55e";
-          errorBox.textContent =
-            "✅ Check your email to verify your subscription!";
-          errorBox.style.display = "block";
+          successBox.style.color = "#22c55e";
+          successBox.textContent =
+            "✅ Check your email to re-activate your subscription!";
+          successBox.style.display = "block";
           emailInput.value = "";
         } catch (error) {
-          errorBox.style.color = "#dc2626";
-          errorBox.textContent = `Error: ${error.message}`;
-          errorBox.style.display = "block";
+          if (!errorBox.textContent) {
+            errorBox.style.color = "#dc2626";
+            errorBox.textContent = `❌ Error: ${error.message}`;
+            errorBox.style.display = "block";
+          }
         }
       });
     </script>

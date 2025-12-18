@@ -38,6 +38,12 @@ async def home_route(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
+@app.get("/resubscribe", response_class=HTMLResponse)
+async def resubscribe_route(request: Request):
+    """Display the re-subscribe form for users who previously unsubscribed"""
+    return templates.TemplateResponse("resubscribe.html", {"request": request})
+
+
 @app.post("/register")
 async def register_user(email: str = Form(...)):
     email = email.lower().strip()
@@ -109,6 +115,49 @@ async def unsubscribe_user(token: str, request: Request):
     return templates.TemplateResponse(
         "unsubscribe.html",
         {"request": request, "email": email}
+    )
+
+
+@app.post("/resubscribe")
+async def resubscribe_user(email: str = Form(...)):
+    """
+    Handle re-subscription for users who previously unsubscribed.
+    Checks if user exists and is not subscribed, then re-activates subscription.
+    """
+    email = email.lower().strip()
+
+    if not is_allowed_email(email):
+        raise HTTPException(status_code=400, detail="Invalid email")
+
+    # Check if user exists in subscribers collection
+    existing_user = FirebaseObj.get_document("subscribers", email)
+    
+    if not existing_user:
+        raise HTTPException(
+            status_code=404, 
+            detail="Email not found. Please register as a new subscriber."
+        )
+
+    # Check if already subscribed
+    if existing_user.get("subscribed"):
+        raise HTTPException(
+            status_code=409, 
+            detail="Email is already active. You're already receiving job alerts!"
+        )
+
+    # Create new verification token for re-activation
+    verification_token = create_verification_token(email)
+
+    # Send re-subscription verification email
+    verify_link = f"{BASE_URL}/verify-email/{verification_token}"
+    SendGridObj.send_verification_email(
+        email=email,
+        verify_link=verify_link
+    )
+
+    return JSONResponse(
+        {"message": "Re-subscription verification email sent"},
+        status_code=200
     )
 
 

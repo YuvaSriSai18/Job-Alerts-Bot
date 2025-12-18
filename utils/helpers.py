@@ -87,20 +87,26 @@ def verify_unsubscribe_token(token: str) -> str | None:
     except InvalidTokenError:
         return None
 
-def format_date(date_str):
-  from datetime import datetime
-  dt_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00')) 
+def format_date_ist(date_str):
+    from datetime import datetime, timezone, timedelta
 
-  # Format as desired (e.g., "Dec 18, 2025 - 07:42 AM")
-  formatted_date = dt_obj.strftime("%b %d, %Y - %I:%M %p")
-  # print(formatted_date)
-  return formatted_date
+    # Parse ISO string (UTC)
+    dt_utc = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+
+    # Convert to IST (UTC + 5:30)
+    ist_offset = timedelta(hours=5, minutes=30)
+    dt_ist = dt_utc.astimezone(timezone(ist_offset))
+
+    # Format
+    return dt_ist.strftime("%b %d, %Y - %I:%M %p")
+
 
 # ================== TEST ==================
 
 if __name__ == "__main__":
-    token = create_verification_token("nanithota18102004@gmail.com")
-    print("TOKEN:", token)
+    # token = create_verification_token("nanithota18102004@gmail.com")
+    # print("TOKEN:", token)
 
-    email = verify_verification_token(token)
-    print("DECODED EMAIL:", email)
+    # email = verify_verification_token(token)
+    # print("DECODED EMAIL:", email)
+    print(format_date_ist("2025-12-18T13:54:02Z"))
