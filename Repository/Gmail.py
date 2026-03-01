@@ -1,6 +1,7 @@
 import os
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail, ReplyTo
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from datetime import datetime
 from dotenv import load_dotenv
 from pathlib import Path
@@ -9,15 +10,18 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8001")
 
-class SendGridService:
+
+class GmailService:
     def __init__(self):
-        self.api_key = os.getenv("SENDGRID_API_KEY")
-        
-        if not self.api_key:
-            raise ValueError("SENDGRID_API_KEY not found in environment variables")
-        
-        self.from_email = ("yuvasrisai18@gmail.com", "Job Alerts")
-        self.client = SendGridAPIClient(self.api_key)
+        self.gmail_address = os.getenv("GMAIL_ADDRESS")
+        self.gmail_app_password = os.getenv("GMAIL_APP_PASSWORD")
+
+        if not self.gmail_address:
+            raise ValueError("GMAIL_ADDRESS not found in environment variables")
+        if not self.gmail_app_password:
+            raise ValueError("GMAIL_APP_PASSWORD not found in environment variables")
+
+        self.from_name = "Job Alerts"
 
     def _load_template(self, template_name: str) -> str:
         path = f"templates/{template_name}"
@@ -25,32 +29,34 @@ class SendGridService:
             return f.read()
 
     def _send(self, to_email: str, subject: str, html_content: str):
-        if not self.api_key:
-            raise ValueError("SENDGRID_API_KEY is not configured")
-        
         try:
-            message = Mail(
-                from_email=self.from_email,
-                to_emails=to_email,
-                subject=subject,
-                html_content=html_content
-            )
-            message.reply_to = ReplyTo("noreply@sendgrid.net")
+            message = MIMEMultipart("alternative")
+            message["From"] = f"{self.from_name} <{self.gmail_address}>"
+            message["To"] = to_email
+            message["Subject"] = subject
+            message["Reply-To"] = self.gmail_address
 
-            response = self.client.send(message)
+            html_part = MIMEText(html_content, "html")
+            message.attach(html_part)
+
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.starttls()
+                server.login(self.gmail_address, self.gmail_app_password)
+                server.sendmail(self.gmail_address, to_email, message.as_string())
+
             print("E-Mail has been sent")
-            return response.status_code
-        
+            return 200
+
+        except smtplib.SMTPAuthenticationError as e:
+            raise ValueError(
+                "Gmail SMTP Authentication Error. Possible causes:\n"
+                "1. Invalid Gmail address or app password\n"
+                "2. App password not generated correctly (use https://myaccount.google.com/apppasswords)\n"
+                "3. 2-Step Verification not enabled on Google account\n"
+                f"Details: {str(e)}"
+            )
         except Exception as e:
-            error_message = str(e)
-            if "403" in error_message or "Forbidden" in error_message:
-                raise ValueError(
-                    "SendGrid API Error: 403 Forbidden. Possible causes:\n"
-                    "1. Invalid API Key\n"
-                    "2. Sender email not verified in SendGrid\n"
-                    "3. API key doesn't have send permissions\n"
-                    f"Details: {error_message}"
-                )
+            print(f"Failed to send email: {str(e)}")
             raise
 
     def send_verification_email(self, email: str, verify_link: str):
@@ -61,7 +67,7 @@ class SendGridService:
             .replace("{{ verifyLink }}", verify_link)
             .replace("{{ year }}", str(datetime.now().year))
         )
-        
+
         return self._send(
             to_email=email,
             subject="Confirm your Job Alerts subscription",

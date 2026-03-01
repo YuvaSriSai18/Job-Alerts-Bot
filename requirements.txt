@@ -1,34 +1,44 @@
+# ----------------------------
 # Web Framework & Server
-fastapi
-uvicorn
-python-multipart
-Jinja2
+# ----------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+Jinja2==3.1.4
 
-# Environment & Configuration
-python-dotenv
+# ----------------------------
+# Environment
+# ----------------------------
+python-dotenv==1.0.1
 
-# Email Service
-sendgrid
+# ----------------------------
+# Firebase & Firestore
+# ----------------------------
+firebase-admin==7.2.0
+google-cloud-firestore==2.23.0
 
-# Firebase & Google Cloud
-firebase-admin
-google-cloud-firestore
-google-auth
-google-auth-httplib2
-google-auth-oauthlib
+# ----------------------------
+# Google API Client
+# ----------------------------
+google-api-python-client==2.137.0
 
-# Google APIs
-google-api-python-client
+# ----------------------------
+# Generative AI
+# ----------------------------
+google-generativeai==0.8.6
 
-# AI & Generative Models
-google-generativeai
+# ----------------------------
+# Authentication
+# ----------------------------
+PyJWT==2.10.1
 
-# Authentication & Tokens
-PyJWT
-
+# ----------------------------
 # YouTube
-youtube-transcript-api
+# ----------------------------
+youtube-transcript-api==0.6.2
 
-# HTTP Client
-httpx
-requests
+# ----------------------------
+# HTTP Clients
+# ----------------------------
+httpx==0.28.1
+requests==2.32.3

@@ -11,7 +11,7 @@ load_dotenv()
 
 from Repository.Youtube import Youtube
 from Repository.Firebase import Firebase
-from Repository.sendGrid import SendGridService
+from Repository.Gmail import GmailService
 from utils.helpers import (
     is_allowed_email,
     create_verification_token,
@@ -25,7 +25,7 @@ app = FastAPI()
 
 YoutubeObj = Youtube()
 FirebaseObj = Firebase()
-SendGridObj = SendGridService()
+GmailObj = GmailService()
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -71,7 +71,7 @@ async def register_user(email: str = Form(...)):
 
     verify_link = f"{BASE_URL}/verify-email/{verification_token}"
     # print(verify_link)
-    SendGridObj.send_verification_email(
+    GmailObj.send_verification_email(
         email=email,
         verify_link=verify_link
     )
@@ -150,7 +150,7 @@ async def resubscribe_user(email: str = Form(...)):
 
     # Send re-subscription verification email
     verify_link = f"{BASE_URL}/verify-email/{verification_token}"
-    SendGridObj.send_verification_email(
+    GmailObj.send_verification_email(
         email=email,
         verify_link=verify_link
     )
@@ -167,7 +167,7 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
     Protected cron endpoint for job alert scheduler.
     Runs the job alert logic exactly once per request.
     
-    Called by GitHub Actions every 6 hours.
+    Called by GitHub Actions every 3 hours.
     
     Security:
     - Header: x-cron-secret
@@ -208,14 +208,15 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         print(f"\n📺 [CRON] Fetching videos...")
         
         state = FirebaseObj.get_document("system_state", "youtube")
-        last_processed_at = state.get("lastProcessedAt") if state else None
+        last_scraped_at = state.get("lastScrapedAt") if state else None
         
-        print(f"   - Last processed: {last_processed_at or 'Never'}")
+        print(f"   - Last scraped: {last_scraped_at or 'Never'}")
         
+        # Use the stored timestamp to only fetch videos published after last scrape
         videos = YoutubeObj.get_recent_videos(
             CHANNEL_ID,
             MAX_VIDEOS,
-            published_after=last_processed_at
+            published_after=last_scraped_at
         )
         
         if not videos:
@@ -270,16 +271,34 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
                 traceback.print_exc()
                 continue
         
+        # Deduplicate openings by (company, role, applyLink) to avoid sending same job multiple times
+        seen = set()
+        unique_openings = []
+        for job in all_openings:
+            key = (
+                (job.get("company") or "").lower().strip(),
+                (job.get("role") or "").lower().strip(),
+                (job.get("applyLink") or "").lower().strip()
+            )
+            if key not in seen:
+                seen.add(key)
+                unique_openings.append(job)
+            else:
+                print(f"   🔄 Duplicate skipped: {job.get('role')} at {job.get('company')}")
+        
+        all_openings = unique_openings
+        print(f"   After dedup: {len(all_openings)} unique opening(s)")
+        
         if not all_openings:
             print(f"\n📭 [CRON] No job openings found in any video")
             
-            # Update state anyway
+            # Update last scraped timestamp anyway to avoid re-processing these videos
             if videos:
                 latest_published_at = max(v["publishedAt"] for v in videos)
                 FirebaseObj.set_document(
                     "system_state",
                     "youtube",
-                    {"lastProcessedAt": latest_published_at}
+                    {"lastScrapedAt": latest_published_at}
                 )
             
             return JSONResponse(
@@ -307,13 +326,13 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         if not active:
             print("   📭 No active subscribers")
             
-            # Update state
+            # Update last scraped timestamp
             if videos:
                 latest_published_at = max(v["publishedAt"] for v in videos)
                 FirebaseObj.set_document(
                     "system_state",
                     "youtube",
-                    {"lastProcessedAt": latest_published_at}
+                    {"lastScrapedAt": latest_published_at}
                 )
             
             return JSONResponse(
@@ -348,7 +367,7 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
                     emails_failed += 1
                     continue
                 
-                SendGridObj.send_job_alert_email(
+                GmailObj.send_job_alert_email(
                     email=email,
                     openings=all_openings,
                     unsubscribe_token=token
@@ -369,9 +388,9 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
             FirebaseObj.set_document(
                 "system_state",
                 "youtube",
-                {"lastProcessedAt": latest_published_at}
+                {"lastScrapedAt": latest_published_at}
             )
-            print(f"   ✅ State updated: {latest_published_at}")
+            print(f"   ✅ State updated (lastScrapedAt): {latest_published_at}")
         
         # ===== COMPLETION =====
         print(f"\n🎉 [CRON] Job completed successfully!")
@@ -416,13 +435,14 @@ APPLICATION FLOW:
 1. Subscribe -> User enters email, stored in Firestore with isVerified=False
 2. Verification -> User receives verification email with JWT token
 3. Verify endpoint -> Validates token, sets isVerified=True and subscribed=True
-4. Cron job -> /api/cron/job-alert endpoint (called by GitHub Actions every 6 hours)
+4. Cron job -> /api/cron/job-alert endpoint (called by GitHub Actions every 3 hours)
 5. Unsubscribe -> User clicks unsubscribe link with JWT token to stop receiving emails
 
 CRON EXECUTION (GitHub Actions):
-- GitHub Actions calls GET /api/cron/job-alert with x-cron-secret header every 6 hours
+- GitHub Actions calls GET /api/cron/job-alert with x-cron-secret header every 3 hours
 - Endpoint authenticates using CRON_SECRET environment variable
 - Processes YouTube videos, extracts jobs, and sends emails to subscribers
 - Stateless HTTP endpoint: safe to call multiple times
-- State tracked in Firestore (lastProcessedAt prevents duplicate processing)
+- State tracked in Firestore (lastScrapedAt prevents duplicate processing)
+- Job openings are deduplicated by (company, role, applyLink) before sending
 """
