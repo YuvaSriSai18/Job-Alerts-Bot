@@ -208,15 +208,15 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         print(f"\n📺 [CRON] Fetching videos...")
         
         state = FirebaseObj.get_document("system_state", "youtube")
-        last_scraped_at = state.get("lastScrapedAt") if state else None
+        most_recent_published_at = state.get("mostRecentPublishedAt") if state else None
         
-        print(f"   - Last scraped: {last_scraped_at or 'Never'}")
+        print(f"   - Most recent processed: {most_recent_published_at or 'Never'}")
         
-        # Use the stored timestamp to only fetch videos published after last scrape
+        # Use the stored timestamp to only fetch videos published after the most recent processed video
         videos = YoutubeObj.get_recent_videos(
             CHANNEL_ID,
             MAX_VIDEOS,
-            published_after=last_scraped_at
+            published_after=most_recent_published_at
         )
         
         if not videos:
@@ -235,10 +235,16 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         
         all_openings = []
         videos_with_jobs = 0
+        videos_with_jobs_data = []  # Track videos that had job openings for timestamp update
         
         for i, video in enumerate(videos, 1):
             try:
                 print(f"\n   [{i}/{len(videos)}] Processing: {video['videoId']}")
+                
+                # Skip if video was already processed (publishedAt <= mostRecentPublishedAt)
+                if most_recent_published_at and video["publishedAt"] <= most_recent_published_at:
+                    print(f"      ⏭️  Skipping (already processed)")
+                    continue
                 
                 result = YoutubeObj.process_video_for_jobs(video["videoId"])
                 
@@ -256,6 +262,7 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
                         print(f"      ✅ Found {job_count} job opening(s)")
                         all_openings.extend(openings)
                         videos_with_jobs += 1
+                        videos_with_jobs_data.append(video)  # Store video data for timestamp tracking
                     else:
                         print(f"      ℹ️  No jobs in this video (isJobVideo={is_job_video}, openings={len(openings) if openings else 0})")
                 else:
@@ -292,15 +299,6 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         if not all_openings:
             print(f"\n📭 [CRON] No job openings found in any video")
             
-            # Update last scraped timestamp anyway to avoid re-processing these videos
-            if videos:
-                latest_published_at = max(v["publishedAt"] for v in videos)
-                FirebaseObj.set_document(
-                    "system_state",
-                    "youtube",
-                    {"lastScrapedAt": latest_published_at}
-                )
-            
             return JSONResponse(
                 {
                     "status": "success",
@@ -325,15 +323,6 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         
         if not active:
             print("   📭 No active subscribers")
-            
-            # Update last scraped timestamp
-            if videos:
-                latest_published_at = max(v["publishedAt"] for v in videos)
-                FirebaseObj.set_document(
-                    "system_state",
-                    "youtube",
-                    {"lastScrapedAt": latest_published_at}
-                )
             
             return JSONResponse(
                 {
@@ -383,14 +372,15 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         # ===== STEP 6: Update state =====
         print(f"\n💾 [CRON] Updating state...")
         
-        if videos:
-            latest_published_at = max(v["publishedAt"] for v in videos)
+        # Only update the timestamp with the most recent publishedAt from videos that contained jobs
+        if videos_with_jobs_data:
+            latest_published_at = max(v["publishedAt"] for v in videos_with_jobs_data)
             FirebaseObj.set_document(
                 "system_state",
                 "youtube",
-                {"lastScrapedAt": latest_published_at}
+                {"mostRecentPublishedAt": latest_published_at}
             )
-            print(f"   ✅ State updated (lastScrapedAt): {latest_published_at}")
+            print(f"   ✅ State updated (mostRecentPublishedAt): {latest_published_at}")
         
         # ===== COMPLETION =====
         print(f"\n🎉 [CRON] Job completed successfully!")
@@ -443,6 +433,7 @@ CRON EXECUTION (GitHub Actions):
 - Endpoint authenticates using CRON_SECRET environment variable
 - Processes YouTube videos, extracts jobs, and sends emails to subscribers
 - Stateless HTTP endpoint: safe to call multiple times
-- State tracked in Firestore (lastScrapedAt prevents duplicate processing)
+- State tracked in Firestore (mostRecentPublishedAt stores timestamp from last video with job openings)
+- Only updates timestamp when videos with actual job openings are processed
 - Job openings are deduplicated by (company, role, applyLink) before sending
 """
