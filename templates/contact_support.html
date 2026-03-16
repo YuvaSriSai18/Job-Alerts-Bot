@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contact Support – Job Alerts</title>
+
+    <link
+      rel="icon"
+      href="https://img.freepik.com/free-vector/job-alert-abstract-concept-illustration-job-notification-career-alert-work-opportunity-information-online-application-status-digital-hr-human-resources-service_335657-3353.jpg"
+    />
+
+    <style>
+      * {
+        box-sizing: border-box;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #4f46e5, #6366f1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 600px;
+        width: 100%;
+      }
+
+      .card {
+        background: #ffffff;
+        padding: 40px;
+        border-radius: 14px;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 32px;
+      }
+
+      .logo {
+        font-size: 24px;
+        font-weight: 700;
+        color: #4f46e5;
+        margin-bottom: 4px;
+      }
+
+      .title {
+        font-size: 22px;
+        font-weight: 600;
+        color: #1f2937;
+        margin: 12px 0 8px 0;
+      }
+
+      .subtitle {
+        font-size: 14px;
+        color: #6b7280;
+        line-height: 1.5;
+      }
+
+      form {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+
+      .form-group {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      label {
+        font-size: 14px;
+        font-weight: 600;
+        color: #374151;
+      }
+
+      .required {
+        color: #dc2626;
+      }
+
+      input[type="email"],
+      input[type="text"],
+      select,
+      textarea {
+        padding: 12px;
+        font-size: 14px;
+        border-radius: 8px;
+        border: 1px solid #d1d5db;
+        outline: none;
+        transition: all 0.3s ease;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      }
+
+      input[type="email"]:focus,
+      input[type="text"]:focus,
+      select:focus,
+      textarea:focus {
+        border-color: #4f46e5;
+        box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 140px;
+      }
+
+      .help-text {
+        font-size: 12px;
+        color: #6b7280;
+        margin-top: 2px;
+      }
+
+      .priority-group {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+      }
+
+      .priority-option {
+        position: relative;
+      }
+
+      .priority-option input[type="radio"] {
+        position: absolute;
+        opacity: 0;
+      }
+
+      .priority-label {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 10px;
+        border: 2px solid #d1d5db;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 13px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+      }
+
+      .priority-option input[type="radio"]:checked + .priority-label {
+        border-color: #4f46e5;
+        background: #f3f4f6;
+      }
+
+      .priority-low.priority-option input[type="radio"]:checked + .priority-label {
+        border-color: #10b981;
+        color: #10b981;
+      }
+
+      .priority-medium.priority-option input[type="radio"]:checked + .priority-label {
+        border-color: #f59e0b;
+        color: #f59e0b;
+      }
+
+      .priority-high.priority-option input[type="radio"]:checked + .priority-label {
+        border-color: #dc2626;
+        color: #dc2626;
+      }
+
+      button {
+        padding: 14px;
+        font-size: 16px;
+        font-weight: 600;
+        color: #ffffff;
+        background: linear-gradient(135deg, #4f46e5, #6366f1);
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        margin-top: 8px;
+      }
+
+      button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 20px rgba(79, 70, 229, 0.2);
+      }
+
+      button:active {
+        transform: translateY(0);
+      }
+
+      #message {
+        padding: 12px;
+        border-radius: 8px;
+        font-size: 14px;
+        text-align: center;
+        display: none;
+        margin-bottom: 16px;
+      }
+
+      #message.error {
+        background: #fee2e2;
+        border: 1px solid #fca5a5;
+        color: #dc2626;
+      }
+
+      #message.success {
+        background: #dcfce7;
+        border: 1px solid #86efac;
+        color: #15803d;
+      }
+
+      .info-box {
+        background: #f0f9ff;
+        border-left: 4px solid #0284c7;
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 16px;
+        font-size: 13px;
+        color: #0c4a6e;
+        line-height: 1.6;
+      }
+
+      .info-box strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      .back-link {
+        text-align: center;
+        margin-top: 20px;
+      }
+
+      .back-link a {
+        font-size: 14px;
+        color: #4f46e5;
+        text-decoration: none;
+        font-weight: 600;
+      }
+
+      .back-link a:hover {
+        text-decoration: underline;
+      }
+
+      @media (max-width: 480px) {
+        .card {
+          padding: 24px;
+        }
+
+        .title {
+          font-size: 18px;
+        }
+
+        .priority-group {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <div class="card">
+        <div class="header">
+          <div class="logo">💬 Support</div>
+          <div class="title">Contact Us</div>
+          <div class="subtitle">
+            Have an issue or a suggestion? We're here to help!
+          </div>
+        </div>
+
+        <div class="info-box">
+          <strong>📧 Quick Response</strong>
+          We typically respond to support requests within 24-48 hours. Please be
+          as detailed as possible.
+        </div>
+
+        <div id="message"></div>
+
+        <form id="contactForm">
+          <div class="form-group">
+            <label for="email">
+              Email Address
+              <span class="required">*</span>
+            </label>
+            <input
+              type="email"
+              id="email"
+              name="email"
+              placeholder="your.email@example.com"
+              required
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="name">Name (Optional)</label>
+            <input
+              type="text"
+              id="name"
+              name="name"
+              placeholder="Your name"
+            />
+          </div>
+
+          <div class="form-group">
+            <label for="subject">
+              Subject
+              <span class="required">*</span>
+            </label>
+            <input
+              type="text"
+              id="subject"
+              name="subject"
+              placeholder="Brief description of your issue"
+              required
+            />
+            <div class="help-text">
+              Examples: "Not receiving emails", "Verification issue", "Feature request"
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="description">
+              Description
+              <span class="required">*</span>
+            </label>
+            <textarea
+              id="description"
+              name="description"
+              placeholder="Please provide details about your issue or suggestion. The more specific you are, the faster we can help!"
+              required
+            ></textarea>
+            <div class="help-text">Minimum 10 characters required</div>
+          </div>
+
+          <div class="form-group">
+            <label>
+              Priority Level
+              <span class="required">*</span>
+            </label>
+            <div class="priority-group">
+              <div class="priority-option priority-low">
+                <input
+                  type="radio"
+                  id="priority_low"
+                  name="priority"
+                  value="low"
+                />
+                <label for="priority_low" class="priority-label">
+                  🟢 Low
+                </label>
+              </div>
+
+              <div class="priority-option priority-medium">
+                <input
+                  type="radio"
+                  id="priority_medium"
+                  name="priority"
+                  value="medium"
+                  checked
+                />
+                <label for="priority_medium" class="priority-label">
+                  🟡 Medium
+                </label>
+              </div>
+
+              <div class="priority-option priority-high">
+                <input
+                  type="radio"
+                  id="priority_high"
+                  name="priority"
+                  value="high"
+                />
+                <label for="priority_high" class="priority-label">
+                  🔴 High
+                </label>
+              </div>
+            </div>
+            <div class="help-text" style="margin-top: 8px">
+              Select how urgent your issue is
+            </div>
+          </div>
+
+          <button type="submit">📤 Submit Support Request</button>
+        </form>
+
+        <div class="back-link">
+          <a href="/">← Back to Home</a>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const form = document.getElementById("contactForm");
+      const messageBox = document.getElementById("message");
+      const VALID_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+      const ALLOWED_EXACT_DOMAINS = ["gmail.com"];
+      const ALLOWED_ACADEMIC_SUFFIXES = [
+        ".edu",
+        ".edu.in",
+        ".ac.in",
+        ".ac.uk",
+        ".edu.au",
+        ".edu.sg",
+      ];
+
+      function showMessage(text, type) {
+        messageBox.textContent = text;
+        messageBox.className = type;
+        messageBox.style.display = "block";
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
+      function hideMessage() {
+        messageBox.style.display = "none";
+      }
+
+      function isValidEmail(email) {
+        return VALID_EMAIL_PATTERN.test(email);
+      }
+
+      function isAllowedDomain(email) {
+        const domain = email.split("@")[1].toLowerCase();
+        return (
+          ALLOWED_EXACT_DOMAINS.includes(domain) ||
+          ALLOWED_ACADEMIC_SUFFIXES.some((suffix) => domain.endsWith(suffix))
+        );
+      }
+
+      form.addEventListener("submit", async function (e) {
+        e.preventDefault();
+        hideMessage();
+
+        const email = document.getElementById("email").value.trim().toLowerCase();
+        const name = document.getElementById("name").value.trim();
+        const subject = document.getElementById("subject").value.trim();
+        const description = document.getElementById("description").value.trim();
+        const priority = document.querySelector(
+          'input[name="priority"]:checked'
+        ).value;
+
+        // Validation
+        if (!isValidEmail(email)) {
+          showMessage("❌ Please enter a valid email address.", "error");
+          return;
+        }
+
+        if (!isAllowedDomain(email)) {
+          showMessage(
+            "❌ Only Gmail or official university/college email addresses are allowed.",
+            "error"
+          );
+          return;
+        }
+
+        if (!subject) {
+          showMessage("❌ Please enter a subject.", "error");
+          return;
+        }
+
+        if (!description || description.length < 10) {
+          showMessage(
+            "❌ Please provide at least 10 characters in the description.",
+            "error"
+          );
+          return;
+        }
+
+        if (!priority) {
+          showMessage("❌ Please select a priority level.", "error");
+          return;
+        }
+
+        try {
+          const payload = {
+            email,
+            name: name || undefined,
+            subject,
+            description,
+            priority,
+          };
+
+          const response = await fetch("/api/contact-support", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.detail || data.error || "Failed to submit request");
+          }
+
+          showMessage(
+            `✅ Support request submitted successfully! Your ticket ID is: ${data.ticketId}. We'll respond soon at ${email}.`,
+            "success"
+          );
+
+          form.reset();
+          document.getElementById("priority_medium").checked = true;
+
+          setTimeout(() => {
+            window.location.href = "/";
+          }, 3000);
+        } catch (err) {
+          showMessage(`❌ Error: ${err.message}`, "error");
+        }
+      });
+
+      // Clear message on input
+      const inputs = form.querySelectorAll("input, textarea");
+      inputs.forEach((input) => {
+        input.addEventListener("focus", hideMessage);
+      });
+    </script>
+  </body>
+</html>

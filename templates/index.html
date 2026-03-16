@@ -111,18 +111,28 @@
         margin-top: 20px;
         padding-top: 20px;
         border-top: 1px solid #e5e7eb;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
       }
 
       .link-text {
         font-size: 13px;
         color: #6b7280;
-        margin-bottom: 10px;
+        margin-bottom: 0px;
+      }
+
+      .links-container {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
       }
 
       a {
         color: #4f46e5;
         text-decoration: none;
         font-weight: 600;
+        font-size: 14px;
       }
 
       a:hover {
@@ -160,8 +170,11 @@
       <div class="footer">No spam. Unsubscribe anytime.</div>
 
       <div class="link-section">
-        <div class="link-text">Already unsubscribed?</div>
-        <a href="/resubscribe">Re-subscribe here →</a>
+        <div class="link-text">Need help?</div>
+        <div class="links-container">
+          <a href="/resubscribe">↺ Re-subscribe</a>
+          <a href="/contact-support">💬 Contact Support</a>
+        </div>
       </div>
     </div>
 

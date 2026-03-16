@@ -27,12 +27,21 @@ class JobOpening(BaseModel):
 class PostJobRequest(BaseModel):
     openings: list[JobOpening]
 
+
+class ContactSupportRequest(BaseModel):
+    email: str
+    name: Optional[str] = None
+    subject: str
+    description: str
+    priority: Optional[str] = "medium"  # low, medium, high
+
 load_dotenv()
 
 from Repository.Youtube import Youtube
 from Repository.Firebase import Firebase
 from Repository.Gmail import GmailService
 from Repository.ErrorLogs import ErrorLogs
+from Repository.ContactSupport import ContactSupport
 from utils.helpers import (
     is_allowed_email,
     create_verification_token,
@@ -48,6 +57,7 @@ YoutubeObj = Youtube()
 FirebaseObj = Firebase()
 GmailObj = GmailService()
 ErrorLogsObj = ErrorLogs()
+ContactSupportObj = ContactSupport()
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -64,6 +74,12 @@ async def home_route(request: Request):
 async def resubscribe_route(request: Request):
     """Display the re-subscribe form for users who previously unsubscribed"""
     return templates.TemplateResponse("resubscribe.html", {"request": request})
+
+
+@app.get("/contact-support", response_class=HTMLResponse)
+async def contact_support_route(request: Request):
+    """Display the contact support form"""
+    return templates.TemplateResponse("contact_support.html", {"request": request})
 
 
 @app.post("/register")
@@ -213,6 +229,80 @@ async def resubscribe_user(email: str = Form(...)):
         ErrorLogsObj.log_error(e, "user_resubscribe", {"email": email})
         return JSONResponse(
             {"error": "Re-subscription failed. Please try again later."},
+            status_code=500
+        )
+
+
+@app.post("/api/contact-support")
+async def contact_support(body: ContactSupportRequest):
+    """
+    Handle user support requests and store them in Firebase.
+    
+    Body (JSON):
+    {
+      "email": "user@example.com",
+      "name": "John Doe",
+      "subject": "Issue with email verification",
+      "description": "I'm not receiving verification emails...",
+      "priority": "high"
+    }
+    """
+    try:
+        # Validate email
+        if not is_allowed_email(body.email):
+            raise HTTPException(status_code=400, detail="Invalid email address")
+        
+        # Validate priority
+        if body.priority not in ["low", "medium", "high"]:
+            raise HTTPException(status_code=400, detail="Priority must be: low, medium, or high")
+        
+        # Validate inputs
+        if not body.subject or not body.description:
+            raise HTTPException(status_code=400, detail="Subject and description are required")
+        
+        # Create support ticket
+        timestamp = datetime.now(timezone.utc)
+        ticket_id = f"{int(timestamp.timestamp() * 1000)}"
+        
+        support_data = {
+            "timestamp": int(timestamp.timestamp() * 1000),
+            "email": body.email.lower().strip(),
+            "name": (body.name or "Not provided").strip(),
+            "subject": body.subject.strip(),
+            "description": body.description.strip(),
+            "priority": body.priority.lower(),
+            "status": "open",  # open, in-progress, resolved, closed
+            "readAt": None,
+            "resolvedAt": None,
+            "response": None,
+            "tags": []
+        }
+        
+        # Store in Firebase
+        FirebaseObj.set_document(
+            "contact_support",
+            ticket_id,
+            support_data
+        )
+        
+        print(f"   ✅ Support ticket created: {ticket_id}")
+        
+        return JSONResponse(
+            {
+                "status": "success",
+                "message": "Support request submitted successfully",
+                "ticketId": ticket_id,
+                "email": body.email
+            },
+            status_code=201
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        ErrorLogsObj.log_error(e, "contact_support", {"email": body.email})
+        return JSONResponse(
+            {"error": "Failed to submit support request. Please try again later."},
             status_code=500
         )
 
