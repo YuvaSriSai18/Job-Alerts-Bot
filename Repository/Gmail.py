@@ -61,7 +61,7 @@ class GmailService:
 
     def send_verification_email(self, email: str, verify_link: str):
         template = self._load_template("verify_subscription.html")
-        print(verify_link)
+        # print(verify_link)
         html = (
             template
             .replace("{{ verifyLink }}", verify_link)

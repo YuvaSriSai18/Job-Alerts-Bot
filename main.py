@@ -32,6 +32,7 @@ load_dotenv()
 from Repository.Youtube import Youtube
 from Repository.Firebase import Firebase
 from Repository.Gmail import GmailService
+from Repository.ErrorLogs import ErrorLogs
 from utils.helpers import (
     is_allowed_email,
     create_verification_token,
@@ -46,6 +47,7 @@ app = FastAPI()
 YoutubeObj = Youtube()
 FirebaseObj = Firebase()
 GmailObj = GmailService()
+ErrorLogsObj = ErrorLogs()
 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
@@ -66,76 +68,100 @@ async def resubscribe_route(request: Request):
 
 @app.post("/register")
 async def register_user(email: str = Form(...)):
-    email = email.lower().strip()
+    try:
+        email = email.lower().strip()
 
-    if not is_allowed_email(email):
-        raise HTTPException(status_code=400, detail="Invalid email")
+        if not is_allowed_email(email):
+            raise HTTPException(status_code=400, detail="Invalid email")
 
-    if FirebaseObj.exists("subscribers", "email", email):
-        raise HTTPException(status_code=409, detail="Email already registered")
+        if FirebaseObj.exists("subscribers", "email", email):
+            raise HTTPException(status_code=409, detail="Email already registered")
 
-    verification_token = create_verification_token(email)
-    unsubscribe_token = create_unsubscribe_token(email)
+        verification_token = create_verification_token(email)
+        unsubscribe_token = create_unsubscribe_token(email)
 
-    FirebaseObj.set_document(
-        "subscribers",
-        email,
-        {
-            "email": email,
-            "isVerified": False,
-            "subscribed": False,
-            "unsubscribeToken": unsubscribe_token,
-            "createdAt": datetime.now(timezone.utc)
-        }
-    )
+        FirebaseObj.set_document(
+            "subscribers",
+            email,
+            {
+                "email": email,
+                "isVerified": False,
+                "subscribed": False,
+                "unsubscribeToken": unsubscribe_token,
+                "createdAt": datetime.now(timezone.utc)
+            }
+        )
 
-    verify_link = f"{BASE_URL}/verify-email/{verification_token}"
-    # print(verify_link)
-    GmailObj.send_verification_email(
-        email=email,
-        verify_link=verify_link
-    )
+        verify_link = f"{BASE_URL}/verify-email/{verification_token}"
+        # print(verify_link)
+        GmailObj.send_verification_email(
+            email=email,
+            verify_link=verify_link
+        )
 
-    return JSONResponse(
-        {"message": "Verification email sent"},
-        status_code=200
-    )
+        return JSONResponse(
+            {"message": "Verification email sent"},
+            status_code=200
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        ErrorLogsObj.log_error(e, "user_registration", {"email": email})
+        return JSONResponse(
+            {"error": "Registration failed. Please try again later."},
+            status_code=500
+        )
 
 
 @app.get("/verify-email/{token}", response_class=HTMLResponse)
 async def verify_email(token: str, request: Request):
-    email = verify_verification_token(token)
-    if not email:
-        raise HTTPException(status_code=400, detail="Invalid token")
+    try:
+        email = verify_verification_token(token)
+        if not email:
+            raise HTTPException(status_code=400, detail="Invalid token")
 
-    FirebaseObj.update_document(
-        "subscribers",
-        email,
-        {"isVerified": True, "subscribed": True}
-    )
+        FirebaseObj.update_document(
+            "subscribers",
+            email,
+            {"isVerified": True, "subscribed": True}
+        )
 
-    return templates.TemplateResponse(
-        "subscription_confirmed.html",
-        {"request": request, "email": email}
-    )
+        return templates.TemplateResponse(
+            "subscription_confirmed.html",
+            {"request": request, "email": email}
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        ErrorLogsObj.log_error(e, "email_verification", {"token": token})
+        raise HTTPException(status_code=500, detail="Email verification failed")
 
 
 @app.get("/unsubscribe/{token}", response_class=HTMLResponse)
 async def unsubscribe_user(token: str, request: Request):
-    email = verify_unsubscribe_token(token)
-    if not email:
-        raise HTTPException(status_code=400, detail="Invalid token")
+    try:
+        email = verify_unsubscribe_token(token)
+        if not email:
+            raise HTTPException(status_code=400, detail="Invalid token")
 
-    FirebaseObj.update_document(
-        "subscribers",
-        email,
-        {"subscribed": False}
-    )
+        FirebaseObj.update_document(
+            "subscribers",
+            email,
+            {"subscribed": False}
+        )
 
-    return templates.TemplateResponse(
-        "unsubscribe.html",
-        {"request": request, "email": email}
-    )
+        return templates.TemplateResponse(
+            "unsubscribe.html",
+            {"request": request, "email": email}
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        ErrorLogsObj.log_error(e, "user_unsubscribe", {"token": token})
+        raise HTTPException(status_code=500, detail="Unsubscribe failed")
 
 
 @app.post("/resubscribe")
@@ -144,41 +170,51 @@ async def resubscribe_user(email: str = Form(...)):
     Handle re-subscription for users who previously unsubscribed.
     Checks if user exists and is not subscribed, then re-activates subscription.
     """
-    email = email.lower().strip()
+    try:
+        email = email.lower().strip()
 
-    if not is_allowed_email(email):
-        raise HTTPException(status_code=400, detail="Invalid email")
+        if not is_allowed_email(email):
+            raise HTTPException(status_code=400, detail="Invalid email")
 
-    # Check if user exists in subscribers collection
-    existing_user = FirebaseObj.get_document("subscribers", email)
+        # Check if user exists in subscribers collection
+        existing_user = FirebaseObj.get_document("subscribers", email)
+        
+        if not existing_user:
+            raise HTTPException(
+                status_code=404, 
+                detail="Email not found. Please register as a new subscriber."
+            )
+
+        # Check if already subscribed
+        if existing_user.get("subscribed"):
+            raise HTTPException(
+                status_code=409, 
+                detail="Email is already active. You're already receiving job alerts!"
+            )
+
+        # Create new verification token for re-activation
+        verification_token = create_verification_token(email)
+
+        # Send re-subscription verification email
+        verify_link = f"{BASE_URL}/verify-email/{verification_token}"
+        GmailObj.send_verification_email(
+            email=email,
+            verify_link=verify_link
+        )
+
+        return JSONResponse(
+            {"message": "Re-subscription verification email sent"},
+            status_code=200
+        )
     
-    if not existing_user:
-        raise HTTPException(
-            status_code=404, 
-            detail="Email not found. Please register as a new subscriber."
+    except HTTPException:
+        raise
+    except Exception as e:
+        ErrorLogsObj.log_error(e, "user_resubscribe", {"email": email})
+        return JSONResponse(
+            {"error": "Re-subscription failed. Please try again later."},
+            status_code=500
         )
-
-    # Check if already subscribed
-    if existing_user.get("subscribed"):
-        raise HTTPException(
-            status_code=409, 
-            detail="Email is already active. You're already receiving job alerts!"
-        )
-
-    # Create new verification token for re-activation
-    verification_token = create_verification_token(email)
-
-    # Send re-subscription verification email
-    verify_link = f"{BASE_URL}/verify-email/{verification_token}"
-    GmailObj.send_verification_email(
-        email=email,
-        verify_link=verify_link
-    )
-
-    return JSONResponse(
-        {"message": "Re-subscription verification email sent"},
-        status_code=200
-    )
 
 
 @app.post("/api/post-job")
@@ -207,71 +243,81 @@ async def post_job_alert(body: PostJobRequest, x_api_secret: str = Header(None))
       ]
     }
     """
+    try:
+        # ===== SECURITY =====
+        API_SECRET = os.getenv("CRON_SECRET")
+        if not API_SECRET:
+            return JSONResponse({"error": "CRON_SECRET not configured"}, status_code=500)
+        if not x_api_secret or x_api_secret != API_SECRET:
+            return JSONResponse({"error": "Unauthorized"}, status_code=403)
 
-    # ===== SECURITY =====
-    API_SECRET = os.getenv("CRON_SECRET")
-    if not API_SECRET:
-        return JSONResponse({"error": "CRON_SECRET not configured"}, status_code=500)
-    if not x_api_secret or x_api_secret != API_SECRET:
-        return JSONResponse({"error": "Unauthorized"}, status_code=403)
+        if not body.openings:
+            raise HTTPException(status_code=400, detail="No job openings provided")
 
-    if not body.openings:
-        raise HTTPException(status_code=400, detail="No job openings provided")
+        openings = [job.model_dump() for job in body.openings]
 
-    openings = [job.model_dump() for job in body.openings]
+        # ===== FETCH ACTIVE SUBSCRIBERS =====
+        subscribers = FirebaseObj.get_all_documents("subscribers")
+        active = [
+            s for s in subscribers
+            if s.get("subscribed") and s.get("isVerified")
+        ]
 
-    # ===== FETCH ACTIVE SUBSCRIBERS =====
-    subscribers = FirebaseObj.get_all_documents("subscribers")
-    active = [
-        s for s in subscribers
-        if s.get("subscribed") and s.get("isVerified")
-    ]
+        if not active:
+            return JSONResponse(
+                {
+                    "status": "success",
+                    "message": "No active subscribers",
+                    "jobs_posted": len(openings),
+                    "emails_sent": 0
+                },
+                status_code=200
+            )
 
-    if not active:
+        # ===== SEND EMAILS =====
+        emails_sent = 0
+        emails_failed = 0
+
+        for sub in active:
+            try:
+                email = sub.get("email")
+                token = sub.get("unsubscribeToken")
+
+                if not email or not token:
+                    emails_failed += 1
+                    continue
+
+                GmailObj.send_job_alert_email(
+                    email=email,
+                    openings=openings,
+                    unsubscribe_token=token
+                )
+                emails_sent += 1
+
+            except Exception as e:
+                ErrorLogsObj.log_email_error(e, sub.get('email'), "job_alert_manual")
+                print(f"Failed to send to {sub.get('email')}: {str(e)}")
+                emails_failed += 1
+
         return JSONResponse(
             {
                 "status": "success",
-                "message": "No active subscribers",
+                "message": "Job alert sent",
                 "jobs_posted": len(openings),
-                "emails_sent": 0
+                "emails_sent": emails_sent,
+                "emails_failed": emails_failed
             },
             status_code=200
         )
-
-    # ===== SEND EMAILS =====
-    emails_sent = 0
-    emails_failed = 0
-
-    for sub in active:
-        try:
-            email = sub.get("email")
-            token = sub.get("unsubscribeToken")
-
-            if not email or not token:
-                emails_failed += 1
-                continue
-
-            GmailObj.send_job_alert_email(
-                email=email,
-                openings=openings,
-                unsubscribe_token=token
-            )
-            emails_sent += 1
-
-        except Exception as e:
-            print(f"Failed to send to {sub.get('email')}: {str(e)}")
-            emails_failed += 1
-
-    return JSONResponse(
-        {
-            "status": "success",
-            "message": "Job alert sent",
-            "jobs_posted": len(openings),
-            "emails_sent": emails_sent,
-            "emails_failed": emails_failed
-        },
-        status_code=200
-    )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        ErrorLogsObj.log_error(e, "post_job", {"jobsCount": len(body.openings) if body.openings else 0})
+        return JSONResponse(
+            {"error": "Job posting failed"},
+            status_code=500
+        )
 
 
 @app.get("/api/cron/job-alert")
@@ -382,10 +428,12 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
                     print(f"      ⚠️  Invalid result format: {result}")
                     
             except json.JSONDecodeError as e:
+                ErrorLogsObj.log_gemini_error(e, video['videoId'])
                 print(f"      ❌ JSON Parse Error: {str(e)}")
                 print(f"         This usually means Gemini returned invalid JSON")
                 continue
             except Exception as e:
+                ErrorLogsObj.log_video_processing_error(e, video['videoId'])
                 print(f"      ❌ Error processing video: {type(e).__name__}: {str(e)}")
                 import traceback
                 traceback.print_exc()
@@ -479,6 +527,7 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
                 emails_sent += 1
                 
             except Exception as e:
+                ErrorLogsObj.log_email_error(e, sub.get('email'), "cron_job_alert")
                 print(f"   [{i}/{len(active)}] ❌ Failed: {str(e)}")
                 emails_failed += 1
         
@@ -551,6 +600,7 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         )
         
     except Exception as e:
+        ErrorLogsObj.log_error(e, "cron_job_alert", {"step": "general"})
         print(f"\n❌ [CRON] FATAL ERROR: {str(e)}")
         print("="*60 + "\n")
         import traceback
