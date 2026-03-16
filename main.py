@@ -1,11 +1,31 @@
 from fastapi import FastAPI, Request, Form, HTTPException, Header
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel, HttpUrl
+from typing import Optional
 from pathlib import Path
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 import os
 import json
+
+
+# ================== MODELS ==================
+
+class JobOpening(BaseModel):
+    role: str
+    company: str
+    employmentType: str          # e.g. "Full-Time", "Internship"
+    workMode: str                # e.g. "Remote", "On-site", "Hybrid"
+    location: str
+    duration: Optional[str] = None   # for internships
+    requiredSkills: list[str] = []
+    summary: str
+    applyLink: str
+
+
+class PostJobRequest(BaseModel):
+    openings: list[JobOpening]
 
 load_dotenv()
 
@@ -157,6 +177,99 @@ async def resubscribe_user(email: str = Form(...)):
 
     return JSONResponse(
         {"message": "Re-subscription verification email sent"},
+        status_code=200
+    )
+
+
+@app.post("/api/post-job")
+async def post_job_alert(body: PostJobRequest, x_api_secret: str = Header(None)):
+    """
+    Manually post job openings and send alert emails to all active subscribers.
+
+    Security:
+    - Header: x-api-secret
+    - Compared against CRON_SECRET environment variable
+
+    Body (JSON):
+    {
+      "openings": [
+        {
+          "role": "Backend Engineer",
+          "company": "Acme Corp",
+          "employmentType": "Full-Time",
+          "workMode": "Remote",
+          "location": "India",
+          "duration": null,
+          "requiredSkills": ["Python", "FastAPI"],
+          "summary": "Build scalable APIs.",
+          "applyLink": "https://example.com/apply"
+        }
+      ]
+    }
+    """
+
+    # ===== SECURITY =====
+    API_SECRET = os.getenv("CRON_SECRET")
+    if not API_SECRET:
+        return JSONResponse({"error": "CRON_SECRET not configured"}, status_code=500)
+    if not x_api_secret or x_api_secret != API_SECRET:
+        return JSONResponse({"error": "Unauthorized"}, status_code=403)
+
+    if not body.openings:
+        raise HTTPException(status_code=400, detail="No job openings provided")
+
+    openings = [job.model_dump() for job in body.openings]
+
+    # ===== FETCH ACTIVE SUBSCRIBERS =====
+    subscribers = FirebaseObj.get_all_documents("subscribers")
+    active = [
+        s for s in subscribers
+        if s.get("subscribed") and s.get("isVerified")
+    ]
+
+    if not active:
+        return JSONResponse(
+            {
+                "status": "success",
+                "message": "No active subscribers",
+                "jobs_posted": len(openings),
+                "emails_sent": 0
+            },
+            status_code=200
+        )
+
+    # ===== SEND EMAILS =====
+    emails_sent = 0
+    emails_failed = 0
+
+    for sub in active:
+        try:
+            email = sub.get("email")
+            token = sub.get("unsubscribeToken")
+
+            if not email or not token:
+                emails_failed += 1
+                continue
+
+            GmailObj.send_job_alert_email(
+                email=email,
+                openings=openings,
+                unsubscribe_token=token
+            )
+            emails_sent += 1
+
+        except Exception as e:
+            print(f"Failed to send to {sub.get('email')}: {str(e)}")
+            emails_failed += 1
+
+    return JSONResponse(
+        {
+            "status": "success",
+            "message": "Job alert sent",
+            "jobs_posted": len(openings),
+            "emails_sent": emails_sent,
+            "emails_failed": emails_failed
+        },
         status_code=200
     )
 
@@ -372,15 +485,48 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         # ===== STEP 6: Update state =====
         print(f"\n💾 [CRON] Updating state...")
         
+        # Get existing state to check if we need to reset daily counters
+        existing_state = FirebaseObj.get_document("system_state", "youtube") or {}
+        today = datetime.now(timezone.utc).date().isoformat()
+        last_update_date = existing_state.get("lastUpdateDate")
+        
+        # Initialize or reset daily counters if it's a new day
+        if last_update_date != today:
+            daily_emails_sent = emails_sent
+            daily_emails_failed = emails_failed
+            daily_jobs_sent = len(all_openings)
+        else:
+            # Add to existing daily counters
+            daily_emails_sent = existing_state.get("dailyEmailsSent", 0) + emails_sent
+            daily_emails_failed = existing_state.get("dailyEmailsFailed", 0) + emails_failed
+            daily_jobs_sent = existing_state.get("dailyJobsSent", 0) + len(all_openings)
+        
+        # Build state update with all relevant metrics
+        state_update = {
+            "lastRunTime": datetime.now(timezone.utc).isoformat(),
+            "emailsSent": emails_sent,
+            "emailsFailed": emails_failed,
+            "jobPostingsCount": len(all_openings),
+            "videosProcessed": len(videos),
+            "videosWithJobs": videos_with_jobs,
+            "lastUpdateDate": today,
+            "dailyEmailsSent": daily_emails_sent,
+            "dailyEmailsFailed": daily_emails_failed,
+            "dailyJobsSent": daily_jobs_sent
+        }
+        
         # Only update the timestamp with the most recent publishedAt from videos that contained jobs
         if videos_with_jobs_data:
             latest_published_at = max(v["publishedAt"] for v in videos_with_jobs_data)
-            FirebaseObj.set_document(
-                "system_state",
-                "youtube",
-                {"mostRecentPublishedAt": latest_published_at}
-            )
-            print(f"   ✅ State updated (mostRecentPublishedAt): {latest_published_at}")
+            state_update["mostRecentPublishedAt"] = latest_published_at
+        
+        FirebaseObj.set_document(
+            "system_state",
+            "youtube",
+            state_update
+        )
+        print(f"   ✅ State updated: {emails_sent} emails sent, {len(all_openings)} job postings")
+        print(f"   📊 Daily totals: {daily_emails_sent} emails sent, {daily_emails_failed} failed, {daily_jobs_sent} jobs")
         
         # ===== COMPLETION =====
         print(f"\n🎉 [CRON] Job completed successfully!")

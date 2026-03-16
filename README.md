@@ -14,10 +14,10 @@ Never miss a job opportunity again. Subscribe to get curated job alerts delivere
 ## 🎯 Core Features
 
 - **🤖 AI-Powered Job Extraction**: Uses Google's Gemini AI to intelligently extract job openings from YouTube video titles, descriptions, and transcripts
-- **📧 Email Notifications**: Automated job alert emails sent every 3 hours via Gmail
+- **📧 Email Notifications**: Automated job alert emails sent every 12 hours via Gmail
 - **✅ Email Verification**: Secure subscription verification with JWT tokens
 - **🔄 Re-subscription**: Users can easily re-activate subscriptions after unsubscribing
-- **🔐 Cron Automation**: GitHub Actions scheduled cron job runs every 3 hours
+- **🔐 Cron Automation**: GitHub Actions scheduled cron job runs every 12 hours
 - **🎓 Smart Filtering**: Only accepts verified Gmail and university email addresses
 - **📱 Responsive UI**: Clean, modern web interface for subscription management
 - **🗄️ Firestore State Management**: Tracks processed videos to prevent duplicate emails
@@ -90,7 +90,7 @@ Never miss a job opportunity again. Subscribe to get curated job alerts delivere
 
 4. **Setup GitHub Actions**
    - Add `BACKEND_URL` and `CRON_SECRET` to GitHub Secrets
-   - Workflow triggers automatically every 3 hours
+   - Workflow triggers automatically every 12 hours
 
 ---
 
@@ -140,7 +140,7 @@ idk/
 1. **User Subscribes** → Enters email on homepage
 2. **Verification Email** → Receives confirmation link
 3. **Email Verified** → Subscription activated
-4. **Cron Job Runs** (every 3 hours) → Fetches YouTube videos
+4. **Cron Job Runs** (every 12 hours) → Fetches YouTube videos
 5. **AI Extracts Jobs** → Gemini analyzes content
 6. **Emails Sent** → Job alerts delivered to subscribers
 7. **User Unsubscribes** → Can re-subscribe anytime
