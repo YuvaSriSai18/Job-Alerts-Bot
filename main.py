@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 import os
 import json
@@ -692,6 +692,77 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
     except Exception as e:
         ErrorLogsObj.log_error(e, "cron_job_alert", {"step": "general"})
         print(f"\n❌ [CRON] FATAL ERROR: {str(e)}")
+        print("="*60 + "\n")
+        import traceback
+        traceback.print_exc()
+        
+        return JSONResponse(
+            {"error": str(e)},
+            status_code=500
+        )
+
+
+@app.get("/api/cron/cleanup-error-logs")
+async def cleanup_error_logs(x_cron_secret: str = Header(None)):
+    """
+    Cleanup endpoint to delete old error logs from Firebase.
+    Should be called by GitHub Actions as a scheduled cron job every 7 days.
+    
+    Security:
+    - Header: x-cron-secret
+    - Compare against environment variable: CRON_SECRET
+    - Returns HTTP 403 if invalid
+    
+    Returns:
+    - error_logs_deleted: Number of error logs deleted
+    - timestamp: When cleanup was performed
+    """
+    
+    try:
+        # ===== SECURITY: Validate cron secret =====
+        CRON_SECRET = os.getenv("CRON_SECRET")
+        
+        if not CRON_SECRET:
+            return JSONResponse(
+                {"error": "CRON_SECRET not configured"},
+                status_code=500
+            )
+        
+        if not x_cron_secret or x_cron_secret != CRON_SECRET:
+            return JSONResponse(
+                {"error": "Unauthorized"},
+                status_code=403
+            )
+        
+        print("\n" + "="*60)
+        print(f"🧹 [CLEANUP] Starting error log cleanup at {datetime.now(timezone.utc)}")
+        print("="*60)
+        
+        # ===== CLEANUP ERROR LOGS =====
+        print(f"\n🗑️  [CLEANUP] Deleting error logs older than 7 days...")
+        
+        deleted_count = ErrorLogsObj.clear_old_errors(days=7)
+        
+        print(f"   ✅ Successfully deleted {deleted_count} old error logs")
+        
+        # ===== COMPLETION =====
+        print(f"\n🎉 [CLEANUP] Cleanup completed successfully!")
+        print(f"   - Error logs deleted: {deleted_count}")
+        print("="*60 + "\n")
+        
+        return JSONResponse(
+            {
+                "status": "success",
+                "message": "Cleanup completed",
+                "error_logs_deleted": deleted_count,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            },
+            status_code=200
+        )
+    
+    except Exception as e:
+        ErrorLogsObj.log_error(e, "cron_cleanup_error_logs", {"step": "general"})
+        print(f"\n❌ [CLEANUP] FATAL ERROR: {str(e)}")
         print("="*60 + "\n")
         import traceback
         traceback.print_exc()

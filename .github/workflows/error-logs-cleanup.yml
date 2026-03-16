@@ -1,0 +1,75 @@
+name: Error Logs Cleanup
+
+# Schedule: Every 7 days at 2:00 AM UTC (Sunday)
+on:
+  schedule:
+    - cron: '0 2 * * 0'
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    name: Cleanup Error Logs
+
+    steps:
+      - name: Log Cleanup Start
+        run: |
+          echo "🧹 [GitHub Actions Cleanup] Starting error log cleanup at $(date -u)"
+
+      - name: Call Cleanup Endpoint
+        id: cleanup-call
+        run: |
+          BACKEND_URL="${{ secrets.BACKEND_URL }}"
+          CRON_SECRET="${{ secrets.CRON_SECRET }}"
+          
+          if [ -z "$BACKEND_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "❌ Missing required secrets: BACKEND_URL or CRON_SECRET"
+            exit 1
+          fi
+          
+          echo "📋 Configuration:"
+          echo "   Backend URL: $BACKEND_URL"
+          echo "   Endpoint: /api/cron/cleanup-error-logs"
+          echo ""
+          echo "🔐 Calling endpoint with authentication..."
+          
+          # Call the cleanup endpoint with x-cron-secret header
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            -H "x-cron-secret: $CRON_SECRET" \
+            "$BACKEND_URL/api/cron/cleanup-error-logs")
+          
+          # Split response and HTTP code
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "📊 Response Status: $HTTP_CODE"
+          echo ""
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Endpoint returned 200 OK"
+            echo "Response Body:"
+            echo "$BODY" | jq '.' 2>/dev/null || echo "$BODY"
+          else
+            echo "❌ Endpoint returned $HTTP_CODE"
+            echo "Response Body:"
+            echo "$BODY"
+            exit 1
+          fi
+
+      - name: Log Cleanup End
+        if: always()
+        run: |
+          if [ "${{ steps.cleanup-call.outcome }}" = "success" ]; then
+            echo "✨ Cleanup job completed successfully!"
+          else
+            echo "⚠️ Cleanup job failed!"
+          fi
+          echo "Completed at $(date -u)"
+
+      - name: Notify on Failure
+        if: failure()
+        run: |
+          echo "🚨 Error Log Cleanup failed!"
+          echo "Check GitHub Actions logs for details:"
+          echo "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
