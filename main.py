@@ -364,30 +364,37 @@ async def post_job_alert(body: PostJobRequest, x_api_secret: str = Header(None))
                 status_code=200
             )
 
-        # ===== SEND EMAILS =====
+        # ===== SEND EMAILS IN BATCHES OF 50 =====
         emails_sent = 0
         emails_failed = 0
+        batch_size = 50
 
-        for sub in active:
+        for batch_start in range(0, len(active), batch_size):
+            batch_end = min(batch_start + batch_size, len(active))
+            batch = active[batch_start:batch_end]
+            
             try:
-                email = sub.get("email")
-                token = sub.get("unsubscribeToken")
-
-                if not email or not token:
-                    emails_failed += 1
+                # Extract valid emails from batch
+                batch_emails = [
+                    sub.get("email") for sub in batch 
+                    if sub.get("email") and sub.get("unsubscribeToken")
+                ]
+                
+                if not batch_emails:
+                    emails_failed += len(batch)
                     continue
-
-                GmailObj.send_job_alert_email(
-                    email=email,
-                    openings=openings,
-                    unsubscribe_token=token
+                
+                # Send email to entire batch via BCC
+                GmailObj.send_job_alert_email_batch(
+                    bcc_emails=batch_emails,
+                    openings=openings
                 )
-                emails_sent += 1
-
+                emails_sent += len(batch_emails)
+                
             except Exception as e:
-                ErrorLogsObj.log_email_error(e, sub.get('email'), "job_alert_manual")
-                print(f"Failed to send to {sub.get('email')}: {str(e)}")
-                emails_failed += 1
+                ErrorLogsObj.log_email_error(e, f"batch_{batch_start}-{batch_end}", "job_alert_manual")
+                print(f"Failed to send batch {batch_start}-{batch_end}: {str(e)}")
+                emails_failed += len(batch)
 
         return JSONResponse(
             {
@@ -591,35 +598,43 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         print(f"   Active subscribers: {len(active)}")
         print(f"   Emails to send: {[s.get('email') for s in active]}")
         
-        # ===== STEP 5: Send job alerts =====
+        # ===== STEP 5: Send job alerts in batches of 50 =====
         print(f"\n📧 [CRON] Sending job alerts...")
         
         emails_sent = 0
         emails_failed = 0
-        
-        for i, sub in enumerate(active, 1):
+        batch_size = 50
+
+        for batch_start in range(0, len(active), batch_size):
+            batch_end = min(batch_start + batch_size, len(active))
+            batch = active[batch_start:batch_end]
+            
             try:
-                email = sub.get("email")
-                token = sub.get("unsubscribeToken")
+                print(f"   [Batch {batch_start//batch_size + 1}] Processing emails {batch_start+1} to {batch_end}...")
                 
-                if not email or not token:
-                    print(f"   [{i}/{len(active)}] ⚠️  Skipping - missing data")
-                    emails_failed += 1
+                # Extract valid emails from batch
+                batch_emails = [
+                    sub.get("email") for sub in batch 
+                    if sub.get("email") and sub.get("unsubscribeToken")
+                ]
+                
+                if not batch_emails:
+                    print(f"   [Batch {batch_start//batch_size + 1}] ⚠️  No valid emails in batch")
+                    emails_failed += len(batch)
                     continue
                 
-                GmailObj.send_job_alert_email(
-                    email=email,
-                    openings=all_openings,
-                    unsubscribe_token=token
+                # Send email to entire batch via BCC
+                GmailObj.send_job_alert_email_batch(
+                    bcc_emails=batch_emails,
+                    openings=all_openings
                 )
-                
-                print(f"   [{i}/{len(active)}] ✅ Sent to {email}")
-                emails_sent += 1
+                print(f"   [Batch {batch_start//batch_size + 1}] ✅ Sent to {len(batch_emails)} recipients")
+                emails_sent += len(batch_emails)
                 
             except Exception as e:
-                ErrorLogsObj.log_email_error(e, sub.get('email'), "cron_job_alert")
-                print(f"   [{i}/{len(active)}] ❌ Failed: {str(e)}")
-                emails_failed += 1
+                ErrorLogsObj.log_email_error(e, f"batch_{batch_start}-{batch_end}", "cron_job_alert")
+                print(f"   [Batch {batch_start//batch_size + 1}] ❌ Failed: {str(e)}")
+                emails_failed += len(batch)
         
         # ===== STEP 6: Update state =====
         print(f"\n💾 [CRON] Updating state...")
