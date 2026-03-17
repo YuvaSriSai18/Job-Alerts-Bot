@@ -1,9 +1,9 @@
 name: Job Alert Cron
 
-# Schedule: Every 6 hours
+# Schedule: Every 10 hours
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */10 * * *'
   # Allow manual trigger
   workflow_dispatch:
 
