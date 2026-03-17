@@ -365,9 +365,9 @@ async def post_job_alert(body: PostJobRequest, x_api_secret: str = Header(None))
             )
 
         # ===== SEND EMAILS IN BATCHES OF 50 =====
-        emails_sent = 0
-        emails_failed = 0
         batch_size = 50
+        batches_sent = 0
+        batches_failed = 0
 
         for batch_start in range(0, len(active), batch_size):
             batch_end = min(batch_start + batch_size, len(active))
@@ -381,7 +381,7 @@ async def post_job_alert(body: PostJobRequest, x_api_secret: str = Header(None))
                 ]
                 
                 if not batch_emails:
-                    emails_failed += len(batch)
+                    batches_failed += 1
                     continue
                 
                 # Send email to entire batch via BCC
@@ -389,20 +389,25 @@ async def post_job_alert(body: PostJobRequest, x_api_secret: str = Header(None))
                     bcc_emails=batch_emails,
                     openings=openings
                 )
-                emails_sent += len(batch_emails)
+                batches_sent += 1
                 
             except Exception as e:
                 ErrorLogsObj.log_email_error(e, f"batch_{batch_start}-{batch_end}", "job_alert_manual")
                 print(f"Failed to send batch {batch_start}-{batch_end}: {str(e)}")
-                emails_failed += len(batch)
+                batches_failed += 1
+
+        # Get actual total emails sent from Firebase
+        email_stats = FirebaseObj.get_document("system_state", "email_stats") or {}
+        total_emails_sent = email_stats.get("totalEmailsSent", 0)
 
         return JSONResponse(
             {
                 "status": "success",
                 "message": "Job alert sent",
                 "jobs_posted": len(openings),
-                "emails_sent": emails_sent,
-                "emails_failed": emails_failed
+                "batches_sent": batches_sent,
+                "batches_failed": batches_failed,
+                "total_emails_sent": total_emails_sent
             },
             status_code=200
         )
@@ -601,9 +606,9 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         # ===== STEP 5: Send job alerts in batches of 50 =====
         print(f"\n📧 [CRON] Sending job alerts...")
         
-        emails_sent = 0
-        emails_failed = 0
         batch_size = 50
+        batches_sent = 0
+        batches_failed = 0
 
         for batch_start in range(0, len(active), batch_size):
             batch_end = min(batch_start + batch_size, len(active))
@@ -620,7 +625,7 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
                 
                 if not batch_emails:
                     print(f"   [Batch {batch_start//batch_size + 1}] ⚠️  No valid emails in batch")
-                    emails_failed += len(batch)
+                    batches_failed += 1
                     continue
                 
                 # Send email to entire batch via BCC
@@ -629,15 +634,19 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
                     openings=all_openings
                 )
                 print(f"   [Batch {batch_start//batch_size + 1}] ✅ Sent to {len(batch_emails)} recipients")
-                emails_sent += len(batch_emails)
+                batches_sent += 1
                 
             except Exception as e:
                 ErrorLogsObj.log_email_error(e, f"batch_{batch_start}-{batch_end}", "cron_job_alert")
                 print(f"   [Batch {batch_start//batch_size + 1}] ❌ Failed: {str(e)}")
-                emails_failed += len(batch)
+                batches_failed += 1
         
         # ===== STEP 6: Update state =====
         print(f"\n💾 [CRON] Updating state...")
+        
+        # Get actual total emails sent from Firebase
+        email_stats = FirebaseObj.get_document("system_state", "email_stats") or {}
+        total_emails_sent = email_stats.get("totalEmailsSent", 0)
         
         # Get existing state to check if we need to reset daily counters
         existing_state = FirebaseObj.get_document("system_state", "youtube") or {}
@@ -646,26 +655,27 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         
         # Initialize or reset daily counters if it's a new day
         if last_update_date != today:
-            daily_emails_sent = emails_sent
-            daily_emails_failed = emails_failed
+            daily_emails_sent = batches_sent
+            daily_batches_failed = batches_failed
             daily_jobs_sent = len(all_openings)
         else:
             # Add to existing daily counters
-            daily_emails_sent = existing_state.get("dailyEmailsSent", 0) + emails_sent
-            daily_emails_failed = existing_state.get("dailyEmailsFailed", 0) + emails_failed
+            daily_emails_sent = existing_state.get("dailyBatchesSent", 0) + batches_sent
+            daily_batches_failed = existing_state.get("dailyBatchesFailed", 0) + batches_failed
             daily_jobs_sent = existing_state.get("dailyJobsSent", 0) + len(all_openings)
         
         # Build state update with all relevant metrics
         state_update = {
             "lastRunTime": datetime.now(timezone.utc).isoformat(),
-            "emailsSent": emails_sent,
-            "emailsFailed": emails_failed,
+            "batchesSent": batches_sent,
+            "batchesFailed": batches_failed,
+            "totalEmailsSent": total_emails_sent,
             "jobPostingsCount": len(all_openings),
             "videosProcessed": len(videos),
             "videosWithJobs": videos_with_jobs,
             "lastUpdateDate": today,
-            "dailyEmailsSent": daily_emails_sent,
-            "dailyEmailsFailed": daily_emails_failed,
+            "dailyBatchesSent": daily_emails_sent,
+            "dailyBatchesFailed": daily_batches_failed,
             "dailyJobsSent": daily_jobs_sent
         }
         
@@ -679,16 +689,17 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
             "youtube",
             state_update
         )
-        print(f"   ✅ State updated: {emails_sent} emails sent, {len(all_openings)} job postings")
-        print(f"   📊 Daily totals: {daily_emails_sent} emails sent, {daily_emails_failed} failed, {daily_jobs_sent} jobs")
+        print(f"   ✅ State updated: {batches_sent} batches sent, {total_emails_sent} total emails sent all-time, {len(all_openings)} job postings")
+        print(f"   📊 Daily totals: {daily_emails_sent} batches sent, {daily_batches_failed} failed, {daily_jobs_sent} jobs")
         
         # ===== COMPLETION =====
         print(f"\n🎉 [CRON] Job completed successfully!")
         print(f"   - Videos processed: {len(videos)}")
         print(f"   - Videos with jobs: {videos_with_jobs}")
         print(f"   - Total jobs: {len(all_openings)}")
-        print(f"   - Emails sent: {emails_sent}")
-        print(f"   - Emails failed: {emails_failed}")
+        print(f"   - Batches sent: {batches_sent}")
+        print(f"   - Batches failed: {batches_failed}")
+        print(f"   - Total emails sent all-time: {total_emails_sent}")
         print("="*60 + "\n")
         
         return JSONResponse(
@@ -698,8 +709,9 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
                 "videos_processed": len(videos),
                 "videos_with_jobs": videos_with_jobs,
                 "jobs_extracted": len(all_openings),
-                "emails_sent": emails_sent,
-                "emails_failed": emails_failed
+                "batches_sent": batches_sent,
+                "batches_failed": batches_failed,
+                "total_emails_sent": total_emails_sent
             },
             status_code=200
         )

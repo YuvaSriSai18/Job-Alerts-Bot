@@ -10,6 +10,9 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8001")
 
+from Repository.Firebase import FirebaseService
+FirebaseObj = FirebaseService()
+
 
 class GmailService:
     def __init__(self):
@@ -28,6 +31,19 @@ class GmailService:
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
 
+    def _increment_total_emails_sent(self, count: int):
+        """Increment total emails sent counter in Firebase."""
+        try:
+            state = FirebaseObj.get_document("system_state", "email_stats") or {}
+            current_total = state.get("totalEmailsSent", 0)
+            FirebaseObj.set_document(
+                "system_state",
+                "email_stats",
+                {"totalEmailsSent": current_total + count}
+            )
+        except Exception as e:
+            print(f"Failed to increment email counter: {str(e)}")
+
     def _send(self, to_email: str, subject: str, html_content: str):
         try:
             message = MIMEMultipart("alternative")
@@ -44,6 +60,8 @@ class GmailService:
                 server.login(self.gmail_address, self.gmail_app_password)
                 server.sendmail(self.gmail_address, to_email, message.as_string())
 
+            # Increment total emails sent counter
+            self._increment_total_emails_sent(1)
             print("E-Mail has been sent")
             return 200
 
@@ -78,6 +96,8 @@ class GmailService:
                 server.login(self.gmail_address, self.gmail_app_password)
                 server.sendmail(self.gmail_address, bcc_emails, message.as_string())
 
+            # Increment total emails sent counter by number of BCC recipients
+            self._increment_total_emails_sent(len(bcc_emails))
             print(f"E-Mail has been sent to {len(bcc_emails)} recipients via BCC")
             return 200
 
