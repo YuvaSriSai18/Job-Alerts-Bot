@@ -31,16 +31,36 @@ class GmailService:
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
 
-    def _increment_total_emails_sent(self, count: int):
-        """Increment total emails sent counter in Firebase."""
+    def _increment_total_emails_sent(self, count: int, email_type: str = "individual"):
+        """Increment total emails sent counter in Firebase.
+        
+        Args:
+            count: Number of emails to add to counter
+            email_type: Type of email - "individual" or "batch"
+        """
         try:
             state = FirebaseObj.get_document("system_state", "email_stats") or {}
-            current_total = state.get("totalEmailsSent", 0)
-            FirebaseObj.set_document(
-                "system_state",
-                "email_stats",
-                {"totalEmailsSent": current_total + count}
-            )
+            
+            if email_type == "batch":
+                current_total = state.get("totalBatchEmailsSent", 0)
+                FirebaseObj.set_document(
+                    "system_state",
+                    "email_stats",
+                    {
+                        "totalIndividualEmailsSent": state.get("totalIndividualEmailsSent", 0),
+                        "totalBatchEmailsSent": current_total + count
+                    }
+                )
+            else:  # individual
+                current_total = state.get("totalIndividualEmailsSent", 0)
+                FirebaseObj.set_document(
+                    "system_state",
+                    "email_stats",
+                    {
+                        "totalIndividualEmailsSent": current_total + count,
+                        "totalBatchEmailsSent": state.get("totalBatchEmailsSent", 0)
+                    }
+                )
         except Exception as e:
             print(f"Failed to increment email counter: {str(e)}")
 
@@ -60,8 +80,8 @@ class GmailService:
                 server.login(self.gmail_address, self.gmail_app_password)
                 server.sendmail(self.gmail_address, to_email, message.as_string())
 
-            # Increment total emails sent counter
-            self._increment_total_emails_sent(1)
+            # Increment individual emails sent counter
+            self._increment_total_emails_sent(1, email_type="individual")
             print("E-Mail has been sent")
             return 200
 
@@ -96,8 +116,8 @@ class GmailService:
                 server.login(self.gmail_address, self.gmail_app_password)
                 server.sendmail(self.gmail_address, bcc_emails, message.as_string())
 
-            # Increment total emails sent counter by number of BCC recipients
-            self._increment_total_emails_sent(len(bcc_emails))
+            # Increment batch emails sent counter
+            self._increment_total_emails_sent(len(bcc_emails), email_type="batch")
             print(f"E-Mail has been sent to {len(bcc_emails)} recipients via BCC")
             return 200
 

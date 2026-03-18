@@ -1,6 +1,6 @@
 # 🚀 Job Alerts
 
-![Job Alerts Bot Architecture](https://firebasestorage.googleapis.com/v0/b/cloud0924.appspot.com/o/github_images%2FJob_Alerts_Bot_Architecture.png?alt=media&token=8f7f9aec-b484-4b2b-8388-58cd2dc0000c)
+![Job Alerts Bot Architecture](https://res.cloudinary.com/dvbsion81/image/upload/v1773809201/unnamed_d0oq2o.jpg)
 
 
 ## Overview
