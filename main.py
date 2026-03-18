@@ -649,9 +649,9 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         total_emails_sent = email_stats.get("totalEmailsSent", 0)
         
         # Get existing state to check if we need to reset daily counters
-        existing_state = FirebaseObj.get_document("system_state", "youtube") or {}
+        existing_cron_state = FirebaseObj.get_document("system_state", "cron_stats") or {}
         today = datetime.now(timezone.utc).date().isoformat()
-        last_update_date = existing_state.get("lastUpdateDate")
+        last_update_date = existing_cron_state.get("lastUpdateDate")
         
         # Initialize or reset daily counters if it's a new day
         if last_update_date != today:
@@ -660,12 +660,12 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
             daily_jobs_sent = len(all_openings)
         else:
             # Add to existing daily counters
-            daily_emails_sent = existing_state.get("dailyBatchesSent", 0) + batches_sent
-            daily_batches_failed = existing_state.get("dailyBatchesFailed", 0) + batches_failed
-            daily_jobs_sent = existing_state.get("dailyJobsSent", 0) + len(all_openings)
+            daily_emails_sent = existing_cron_state.get("dailyBatchesSent", 0) + batches_sent
+            daily_batches_failed = existing_cron_state.get("dailyBatchesFailed", 0) + batches_failed
+            daily_jobs_sent = existing_cron_state.get("dailyJobsSent", 0) + len(all_openings)
         
-        # Build state update with all relevant metrics
-        state_update = {
+        # Update cron execution stats in separate document
+        cron_stats_update = {
             "lastRunTime": datetime.now(timezone.utc).isoformat(),
             "batchesSent": batches_sent,
             "batchesFailed": batches_failed,
@@ -679,17 +679,33 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
             "dailyJobsSent": daily_jobs_sent
         }
         
+        FirebaseObj.set_document(
+            "system_state",
+            "cron_stats",
+            cron_stats_update
+        )
+        
+        # Update YouTube-specific state with only video tracking info
+        youtube_state_update = {
+            "mostRecentPublishedAt": None  # Will be set below if there are videos with jobs
+        }
+        
         # Only update the timestamp with the most recent publishedAt from videos that contained jobs
         if videos_with_jobs_data:
             latest_published_at = max(v["publishedAt"] for v in videos_with_jobs_data)
-            state_update["mostRecentPublishedAt"] = latest_published_at
+            youtube_state_update["mostRecentPublishedAt"] = latest_published_at
+        
+        # Preserve existing mostRecentPublishedAt if no new jobs found
+        existing_youtube_state = FirebaseObj.get_document("system_state", "youtube") or {}
+        if youtube_state_update["mostRecentPublishedAt"] is None:
+            youtube_state_update["mostRecentPublishedAt"] = existing_youtube_state.get("mostRecentPublishedAt")
         
         FirebaseObj.set_document(
             "system_state",
             "youtube",
-            state_update
+            youtube_state_update
         )
-        print(f"   ✅ State updated: {batches_sent} batches sent, {total_emails_sent} total emails sent all-time, {len(all_openings)} job postings")
+        print(f"   ✅ Cron stats updated in system_state/cron_stats")
         print(f"   📊 Daily totals: {daily_emails_sent} batches sent, {daily_batches_failed} failed, {daily_jobs_sent} jobs")
         
         # ===== COMPLETION =====
