@@ -10,8 +10,8 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 BASE_URL = os.getenv("BASE_URL", "http://localhost:8001")
 
-from Repository.Firebase import FirebaseService
-FirebaseObj = FirebaseService()
+from Repository.Firebase import Firebase
+FirebaseObj = Firebase()
 
 
 class GmailService:
