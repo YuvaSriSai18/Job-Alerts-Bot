@@ -37,32 +37,108 @@ class GmailService:
         Args:
             count: Number of emails to add to counter
             email_type: Type of email - "individual" or "batch"
+        
+        Individual emails (verification, subscription, etc.) and batch emails 
+        are tracked separately to monitor daily email quota (Gmail 500/day limit).
         """
         try:
-            state = FirebaseObj.get_document("system_state", "email_stats") or {}
+            from datetime import datetime, timezone
             
-            if email_type == "batch":
-                current_total = state.get("totalBatchEmailsSent", 0)
-                FirebaseObj.set_document(
-                    "system_state",
-                    "email_stats",
-                    {
-                        "totalIndividualEmailsSent": state.get("totalIndividualEmailsSent", 0),
-                        "totalBatchEmailsSent": current_total + count
-                    }
-                )
-            else:  # individual
+            state = FirebaseObj.get_document("system_state", "cron_stats") or {}
+            today = datetime.now(timezone.utc).date().isoformat()
+            last_update_date = state.get("lastUpdateDate")
+            
+            if email_type == "individual":
                 current_total = state.get("totalIndividualEmailsSent", 0)
-                FirebaseObj.set_document(
+                
+                # Initialize or reset daily counter if it's a new day
+                if last_update_date != today:
+                    daily_individual = count
+                else:
+                    daily_individual = state.get("dailyIndividualEmailsSent", 0) + count
+                
+                # Only update individual email fields - don't touch batch fields
+                FirebaseObj.update_document(
                     "system_state",
-                    "email_stats",
+                    "cron_stats",
                     {
                         "totalIndividualEmailsSent": current_total + count,
-                        "totalBatchEmailsSent": state.get("totalBatchEmailsSent", 0)
+                        "dailyIndividualEmailsSent": daily_individual
+                    }
+                )
+            else:  # batch
+                current_total = state.get("totalBatchEmailsSent", 0)
+                
+                # Initialize or reset daily counter if it's a new day
+                if last_update_date != today:
+                    daily_batch = count
+                else:
+                    daily_batch = state.get("dailyBatchEmailsSent", 0) + count
+                
+                # Only update batch email fields - don't touch individual fields
+                FirebaseObj.update_document(
+                    "system_state",
+                    "cron_stats",
+                    {
+                        "totalBatchEmailsSent": current_total + count,
+                        "dailyBatchEmailsSent": daily_batch
                     }
                 )
         except Exception as e:
             print(f"Failed to increment email counter: {str(e)}")
+
+    def _increment_total_emails_failed(self, count: int, email_type: str = "individual"):
+        """Increment total emails failed counter in Firebase.
+        
+        Args:
+            count: Number of emails that failed to add to counter
+            email_type: Type of email - "individual" or "batch"
+        """
+        try:
+            from datetime import datetime, timezone
+            
+            state = FirebaseObj.get_document("system_state", "cron_stats") or {}
+            today = datetime.now(timezone.utc).date().isoformat()
+            last_update_date = state.get("lastUpdateDate")
+            
+            if email_type == "individual":
+                current_total = state.get("totalIndividualEmailsFailed", 0)
+                
+                # Initialize or reset daily counter if it's a new day
+                if last_update_date != today:
+                    daily_individual_failed = count
+                else:
+                    daily_individual_failed = state.get("dailyIndividualEmailsFailed", 0) + count
+                
+                # Only update individual failure fields
+                FirebaseObj.update_document(
+                    "system_state",
+                    "cron_stats",
+                    {
+                        "totalIndividualEmailsFailed": current_total + count,
+                        "dailyIndividualEmailsFailed": daily_individual_failed
+                    }
+                )
+            else:  # batch
+                current_total = state.get("totalBatchEmailsFailed", 0)
+                
+                # Initialize or reset daily counter if it's a new day
+                if last_update_date != today:
+                    daily_batch_failed = count
+                else:
+                    daily_batch_failed = state.get("dailyBatchEmailsFailed", 0) + count
+                
+                # Only update batch failure fields
+                FirebaseObj.update_document(
+                    "system_state",
+                    "cron_stats",
+                    {
+                        "totalBatchEmailsFailed": current_total + count,
+                        "dailyBatchEmailsFailed": daily_batch_failed
+                    }
+                )
+        except Exception as e:
+            print(f"Failed to increment email failure counter: {str(e)}")
 
     def _send(self, to_email: str, subject: str, html_content: str):
         try:
@@ -86,6 +162,8 @@ class GmailService:
             return 200
 
         except smtplib.SMTPAuthenticationError as e:
+            # Track individual email failure
+            self._increment_total_emails_failed(1, email_type="individual")
             raise ValueError(
                 "Gmail SMTP Authentication Error. Possible causes:\n"
                 "1. Invalid Gmail address or app password\n"
@@ -94,6 +172,8 @@ class GmailService:
                 f"Details: {str(e)}"
             )
         except Exception as e:
+            # Track individual email failure
+            self._increment_total_emails_failed(1, email_type="individual")
             print(f"Failed to send email: {str(e)}")
             raise
 
@@ -122,6 +202,8 @@ class GmailService:
             return 200
 
         except smtplib.SMTPAuthenticationError as e:
+            # Track batch email failure (all recipients in this batch failed)
+            self._increment_total_emails_failed(len(bcc_emails), email_type="batch")
             raise ValueError(
                 "Gmail SMTP Authentication Error. Possible causes:\n"
                 "1. Invalid Gmail address or app password\n"
@@ -130,6 +212,8 @@ class GmailService:
                 f"Details: {str(e)}"
             )
         except Exception as e:
+            # Track batch email failure (all recipients in this batch failed)
+            self._increment_total_emails_failed(len(bcc_emails), email_type="batch")
             print(f"Failed to send batch email: {str(e)}")
             raise
 
