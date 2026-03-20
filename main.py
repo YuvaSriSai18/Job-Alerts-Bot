@@ -466,7 +466,7 @@ async def cron_job_alert(x_cron_secret: str = Header(None)):
         # ===== STEP 2: Fetch state and get videos =====
         print(f"\n📺 [CRON] Fetching videos...")
         
-        state = FirebaseObj.get_document("system_state", "youtube")
+        state = FirebaseObj.get_document("system_state", "cron_stats")
         most_recent_published_at = state.get("mostRecentPublishedAt") if state else None
         
         print(f"   - Most recent processed: {most_recent_published_at or 'Never'}")
